@@ -1,0 +1,8 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python3 -c ' *)",
+      "Bash(python3 -c \"import ast; [print\\('OK', f\\) or ast.parse\\(open\\(f\\).read\\(\\)\\) for f in ['config.py','optimizer.py','main.py']]\")"
+    ]
+  }
+}
