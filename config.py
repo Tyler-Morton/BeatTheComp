@@ -40,6 +40,10 @@ ALPHA_SLEEVE_PICKS = 3            # top 3 watchlist stocks
 ALPHA_MIN_SENTIMENT = 0.5         # need bullish sentiment to qualify
 ALPHA_MIN_5D_MOMENTUM = 0.05      # need +5% over 5 days
 ALPHA_MAX_PER_STOCK = 0.08        # cap any single stock at 8% of total portfolio
+# Quality filters — protect against bad picks from the wider trending pool
+ALPHA_MIN_PRICE = 3.0             # skip penny stocks ($3+)
+ALPHA_MAX_TODAY_PCT = 0.30        # skip stocks already up >30% today (avoid the top)
+ALPHA_REQUIRE_POSITIVE_20D = True # need 20-day momentum positive too (filters fakeouts)
 
 # ── Universe ─────────────────────────────────────────────────────────────────
 ASSETS = [

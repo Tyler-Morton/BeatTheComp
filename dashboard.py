@@ -284,18 +284,30 @@ else:
         fill="tozeroy", fillcolor="rgba(196, 78, 82, 0.1)",
     ))
 
-    # SPY overlay using batch downloader (rate-limit safe)
+    # SPY overlay — disk cache first, yfinance only as fallback
     try:
-        from data import fetch_prices_range
-        spy_prices = fetch_prices_range(
-            ["SPY"], daily_df["date"].min().to_pydatetime(), datetime.today()
-        )
-        if not spy_prices.empty and "SPY" in spy_prices.columns:
-            spy_norm = spy_prices["SPY"] / spy_prices["SPY"].iloc[0] * 100
-            fig_eq.add_trace(go.Scatter(
-                x=spy_norm.index, y=spy_norm.values, name="SPY",
-                line=dict(color="#8172B2", width=2, dash="dash"),
-            ))
+        from data import load_price_cache
+        cached = load_price_cache(max_age_hours=12)
+        spy_prices = None
+        if cached is not None and "SPY" in cached.columns:
+            spy_prices = cached["SPY"].dropna()
+        else:
+            # Cache miss — try yfinance once, no retries to avoid burning rate limit
+            import yfinance as yf
+            spy_raw = yf.download("SPY", period="1y", auto_adjust=True,
+                                  progress=False, multi_level_index=False)
+            if not spy_raw.empty:
+                spy_prices = spy_raw["Close"]
+
+        if spy_prices is not None and not spy_prices.empty:
+            start_idx = daily_df["date"].min()
+            spy_window = spy_prices[spy_prices.index >= start_idx]
+            if not spy_window.empty:
+                spy_norm = spy_window / spy_window.iloc[0] * 100
+                fig_eq.add_trace(go.Scatter(
+                    x=spy_norm.index, y=spy_norm.values, name="SPY",
+                    line=dict(color="#8172B2", width=2, dash="dash"),
+                ))
     except Exception:
         pass
 
@@ -455,8 +467,19 @@ with tab2:
 
 @st.cache_data(ttl=1800, show_spinner=False)
 def _cached_frontier_data():
-    """Fetch and cache price data for 30 min to avoid yfinance rate limits."""
-    from data import fetch_prices, get_returns
+    """Use disk cache from main.py run — only fall back to yfinance if missing."""
+    from data import load_price_cache, fetch_prices, get_returns
+
+    cached = load_price_cache(max_age_hours=24)
+    if cached is not None:
+        # Filter to just ASSETS we have
+        asset_cols = [a for a in ASSETS if a in cached.columns]
+        if len(asset_cols) >= 3:
+            prices = cached[asset_cols]
+            returns = get_returns(prices)
+            return returns, returns.mean().values * 252, returns.cov().values * 252
+
+    # Cache miss — fetch fresh (may rate limit)
     prices = fetch_prices(ASSETS, 252)
     returns = get_returns(prices)
     return returns, returns.mean().values * 252, returns.cov().values * 252

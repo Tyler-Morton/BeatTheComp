@@ -1,12 +1,41 @@
 import logging
 import time
 from datetime import datetime, timedelta
+from pathlib import Path
 
 import numpy as np
 import pandas as pd
 import yfinance as yf
 
 logger = logging.getLogger(__name__)
+
+# Disk price cache — survives across runs, lets dashboard avoid yfinance hits
+PRICE_CACHE = Path(__file__).parent / "prices_cache.parquet"
+
+
+def save_price_cache(prices: pd.DataFrame) -> None:
+    """Persist most recent price snapshot to disk for dashboard use."""
+    try:
+        prices.to_parquet(PRICE_CACHE)
+        logger.info("Saved %d days × %d tickers to %s",
+                    len(prices), len(prices.columns), PRICE_CACHE.name)
+    except Exception as exc:
+        logger.warning("Could not save price cache: %s", exc)
+
+
+def load_price_cache(max_age_hours: float = 6.0) -> pd.DataFrame | None:
+    """Return cached prices if fresh enough, else None."""
+    if not PRICE_CACHE.exists():
+        return None
+    age_hours = (time.time() - PRICE_CACHE.stat().st_mtime) / 3600
+    if age_hours > max_age_hours:
+        logger.info("Price cache is %.1fh old — too stale", age_hours)
+        return None
+    try:
+        return pd.read_parquet(PRICE_CACHE)
+    except Exception as exc:
+        logger.warning("Could not read price cache: %s", exc)
+        return None
 
 
 def _batch_download(

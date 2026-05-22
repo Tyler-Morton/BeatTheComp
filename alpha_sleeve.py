@@ -9,8 +9,11 @@ from typing import Iterable
 
 from config import (
     ALPHA_MAX_PER_STOCK,
+    ALPHA_MAX_TODAY_PCT,
     ALPHA_MIN_5D_MOMENTUM,
+    ALPHA_MIN_PRICE,
     ALPHA_MIN_SENTIMENT,
+    ALPHA_REQUIRE_POSITIVE_20D,
     ALPHA_SLEEVE_ENABLED,
     ALPHA_SLEEVE_PCT,
     ALPHA_SLEEVE_PICKS,
@@ -34,16 +37,38 @@ def select_alpha_picks(watchlist_data: list[dict]) -> dict[str, float]:
 
     qualified = []
     for row in watchlist_data:
-        sent = row.get("sentiment_score", 0.0) or 0.0
-        mom_5d = row.get("mom_5d", 0.0) or 0.0
-        if sent >= ALPHA_MIN_SENTIMENT and mom_5d >= ALPHA_MIN_5D_MOMENTUM:
-            score = float(sent) + float(mom_5d) * 2   # weight momentum 2x
-            qualified.append({
-                "ticker": row["ticker"],
-                "score": score,
-                "sentiment": sent,
-                "momentum": mom_5d,
-            })
+        ticker = row.get("ticker", "")
+        sent = float(row.get("sentiment_score", 0.0) or 0.0)
+        mom_5d = float(row.get("mom_5d", 0.0) or 0.0)
+        mom_20d = float(row.get("mom_20d", 0.0) or 0.0)
+        today_pct = float(row.get("today_pct", 0.0) or 0.0)
+        price = float(row.get("price", 0.0) or 0.0)
+
+        # Hard filters — must pass ALL to qualify
+        if sent < ALPHA_MIN_SENTIMENT:
+            continue
+        if mom_5d < ALPHA_MIN_5D_MOMENTUM:
+            continue
+        if price < ALPHA_MIN_PRICE:
+            continue                                   # avoid penny stocks
+        if today_pct > ALPHA_MAX_TODAY_PCT:
+            continue                                   # already gapped up, bad entry
+        if ALPHA_REQUIRE_POSITIVE_20D and mom_20d <= 0:
+            continue                                   # filter short-term fakeouts
+
+        # Composite score: bullish news + sustained trend, penalize chasing the top
+        # sentiment (0-1) + 1.5x 5-day momentum + 0.5x 20-day momentum
+        # - small penalty for already running today (avoid buying spikes)
+        score = sent + 1.5 * mom_5d + 0.5 * mom_20d - 0.5 * max(today_pct - 0.10, 0)
+
+        qualified.append({
+            "ticker": ticker,
+            "score": score,
+            "sentiment": sent,
+            "momentum_5d": mom_5d,
+            "momentum_20d": mom_20d,
+            "today_pct": today_pct,
+        })
 
     if not qualified:
         logger.info("Alpha sleeve: no qualifying stocks today")
@@ -68,8 +93,9 @@ def select_alpha_picks(watchlist_data: list[dict]) -> dict[str, float]:
     for p in picks:
         t = p["ticker"]
         logger.info(
-            "  Alpha pick: %-6s  sent=%+.2f  mom_5d=%+.1f%%  sleeve=%.0f%%",
-            t, p["sentiment"], p["momentum"] * 100, sleeve_weights.get(t, 0) * 100,
+            "  Alpha pick: %-6s  sent=%+.2f  mom_5d=%+.1f%%  mom_20d=%+.1f%%  sleeve=%.0f%%",
+            t, p["sentiment"], p["momentum_5d"] * 100, p["momentum_20d"] * 100,
+            sleeve_weights.get(t, 0) * 100,
         )
 
     return sleeve_weights

@@ -54,6 +54,10 @@ def main() -> None:
     returns = get_returns(prices)
     asset_returns = returns[[c for c in ASSETS if c in returns.columns]]
 
+    # Cache prices to disk so the dashboard doesn't have to call yfinance
+    from data import save_price_cache
+    save_price_cache(prices)
+
     # ── 3a. Discover trending stocks for today (Claude web search) ─────────────
     extra_tickers: list[str] = []
     if TRENDING_DISCOVERY_ENABLED:
