@@ -74,10 +74,11 @@ def _apply_sentiment_bounds(
 
 
 def _clip_and_renorm(weights: pd.Series, bounds: list[tuple]) -> pd.Series:
-    """Enforce max bounds, redistribute excess to non-capped assets, allow zeros.
+    """Enforce max bounds, redistribute excess to assets that still have room.
 
-    Iterative — handles the case where capping one asset would push another over.
-    Falls back to spreading across zero-weight assets if no proportional target exists.
+    Tracks 'at cap' status PERSISTENTLY across iterations so capped assets
+    never receive more redistribution. Falls back to spreading across zero-weight
+    assets when proportional targets are exhausted.
     """
     tickers = weights.index.tolist()
     max_bounds = {tickers[i]: bounds[i][1] for i in range(len(tickers))}
@@ -86,37 +87,54 @@ def _clip_and_renorm(weights: pd.Series, bounds: list[tuple]) -> pd.Series:
     if total > 0:
         weights = weights / total
 
-    for _ in range(30):
+    # Persistent set: any ticker ever at-or-above its cap, can never grow further
+    locked: set[str] = set()
+
+    for _ in range(50):
+        # 1. Identify overflow and force-cap
         excess = 0.0
-        capped: set[str] = set()
         for t in tickers:
             if weights[t] > max_bounds[t] + 1e-9:
                 excess += weights[t] - max_bounds[t]
                 weights[t] = max_bounds[t]
-                capped.add(t)
+                locked.add(t)
+            elif abs(weights[t] - max_bounds[t]) < 1e-9:
+                # Already exactly at cap — lock so we don't push it over
+                locked.add(t)
 
         if excess < 1e-9:
-            break  # converged — no more violations
+            break  # all within bounds, converged
 
-        # First try: spread excess proportionally to non-capped, non-zero assets
-        uncapped_nonzero = [t for t in tickers if t not in capped and weights[t] > 1e-9]
-        if uncapped_nonzero:
-            total_uncapped = sum(weights[t] for t in uncapped_nonzero)
-            for t in uncapped_nonzero:
-                weights[t] += excess * (weights[t] / total_uncapped)
+        # 2. Find targets that still have room
+        eligible = [t for t in tickers if t not in locked]
+        if not eligible:
+            break  # nowhere left to put excess — constraints unsatisfiable
+
+        # Prefer non-zero assets first (proportional), fall back to zeros (equal)
+        eligible_nonzero = [t for t in eligible if weights[t] > 1e-9]
+        if eligible_nonzero:
+            total_pool = sum(weights[t] for t in eligible_nonzero)
+            for t in eligible_nonzero:
+                weights[t] += excess * (weights[t] / total_pool)
         else:
-            # Fallback: equal-weight excess across any uncapped asset (including zeros)
-            # This unwinds the momentum filter as a last resort to satisfy constraints.
-            uncapped_any = [t for t in tickers if t not in capped]
-            if not uncapped_any:
-                break
-            per_asset = excess / len(uncapped_any)
-            for t in uncapped_any:
+            per_asset = excess / len(eligible)
+            for t in eligible:
                 weights[t] += per_asset
 
-    total = weights.sum()
-    if total > 0:
-        weights = weights / total
+    # Final safety net: hard-cap anything still over (rare numerical edge case)
+    for t in tickers:
+        if weights[t] > max_bounds[t]:
+            weights[t] = max_bounds[t]
+
+    # Renormalize by adding deficit only to assets with remaining room
+    deficit = 1.0 - float(weights.sum())
+    if abs(deficit) > 1e-6:
+        room = [(t, max_bounds[t] - weights[t]) for t in tickers if max_bounds[t] - weights[t] > 1e-9]
+        total_room = sum(r for _, r in room)
+        if total_room > 0:
+            for t, r in room:
+                weights[t] += deficit * (r / total_room)
+
     return weights
 
 

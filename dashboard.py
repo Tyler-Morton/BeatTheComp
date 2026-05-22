@@ -453,18 +453,24 @@ with tab2:
             except Exception as exc:
                 st.error(f"Pipeline error: {exc}")
 
+@st.cache_data(ttl=1800, show_spinner=False)
+def _cached_frontier_data():
+    """Fetch and cache price data for 30 min to avoid yfinance rate limits."""
+    from data import fetch_prices, get_returns
+    prices = fetch_prices(ASSETS, 252)
+    returns = get_returns(prices)
+    return returns, returns.mean().values * 252, returns.cov().values * 252
+
+
 with tab3:
     st.markdown("**Where your portfolio sits on the risk/return frontier.**")
+    st.caption("Compares your bot's portfolio to 3000 random portfolios + the min-variance baseline.")
     if st.button("Generate Frontier", key="ef_btn"):
         with st.spinner("Computing 3000 random portfolios…"):
             try:
-                from data import fetch_prices, get_returns
                 from scipy.optimize import minimize
 
-                prices_ef = fetch_prices(ASSETS, 252)
-                returns_ef = get_returns(prices_ef)
-                mean_r = returns_ef.mean().values * 252
-                cov_r = returns_ef.cov().values * 252
+                returns_ef, mean_r, cov_r = _cached_frontier_data()
 
                 sim_ret, sim_vol = [], []
                 for _ in range(3000):
