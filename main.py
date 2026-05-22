@@ -63,7 +63,7 @@ def main() -> None:
         sentiment_future = pool.submit(run_sentiment_analysis, [a for a in ASSETS if a in prices.columns])
         watchlist_future = pool.submit(scan_watchlist)
         sentiment_results = sentiment_future.result()
-        watchlist_future.result()
+        watchlist_data = watchlist_future.result()   # full scan rows for alpha sleeve
 
     # ── 4. Detect market regime ────────────────────────────────────────────────
     logger.info("Detecting market regime…")
@@ -80,13 +80,20 @@ def main() -> None:
         sentiment_modifiers=sentiment_results,
         regime=regime,
     )
-    target_weights: dict[str, float] = result["weights"]
+    etf_target_weights: dict[str, float] = result["weights"]
     logger.info(
         "Optimizer result — Sharpe: %.2f  Vol: %.1f%%  Ret: %.1f%%",
         result["sharpe_ratio"], result["annual_volatility"] * 100, result["expected_annual_return"] * 100,
     )
+
+    # ── 5b. Apply alpha sleeve (top watchlist stocks) ─────────────────────────
+    from alpha_sleeve import merge_with_etf_weights
+    target_weights = merge_with_etf_weights(etf_target_weights, watchlist_data)
+
+    logger.info("Final target weights:")
     for ticker, w in sorted(target_weights.items(), key=lambda x: -x[1]):
-        logger.info("  %-6s  %.1f%%", ticker, w * 100)
+        if w > 0.001:
+            logger.info("  %-6s  %.1f%%", ticker, w * 100)
 
     # ── 6. Risk checks ─────────────────────────────────────────────────────────
     from broker import get_portfolio_value, get_current_positions

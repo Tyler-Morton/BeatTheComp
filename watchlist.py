@@ -100,7 +100,11 @@ def _write_alerts(alerts: list[dict]) -> None:
 
 
 def scan_watchlist(tickers: list[str] | None = None) -> list[dict]:
-    """Scan watchlist tickers, write logs and alerts, return alert dicts."""
+    """Scan watchlist tickers, write logs/alerts, return FULL scan data (one row per ticker).
+
+    Returned list is used by alpha_sleeve.py to pick top stocks. Each row has
+    ticker, price, today_pct, mom_5d, mom_20d, sentiment_score, sentiment_summary.
+    """
     if tickers is None:
         tickers = WATCHLIST
 
@@ -116,7 +120,7 @@ def scan_watchlist(tickers: list[str] | None = None) -> list[dict]:
         score = sentiment.get("score", 0.0)
         summary = sentiment.get("summary", "")
 
-        log_rows.append({
+        row = {
             "timestamp": now,
             "ticker": ticker,
             "price": round(data["price"], 2),
@@ -125,7 +129,8 @@ def scan_watchlist(tickers: list[str] | None = None) -> list[dict]:
             "mom_20d": round(data["mom_20d"], 4),
             "sentiment_score": round(score, 3),
             "sentiment_summary": summary,
-        })
+        }
+        log_rows.append(row)
 
         reasons = _check_alerts(data, sentiment)
         if reasons:
@@ -143,4 +148,4 @@ def scan_watchlist(tickers: list[str] | None = None) -> list[dict]:
     _write_log(log_rows)
     _write_alerts(alert_rows)
     logger.info("Watchlist scan complete — %d tickers, %d alerts", len(log_rows), len(alert_rows))
-    return alert_rows
+    return log_rows   # full scan data, not just alerts

@@ -2,8 +2,12 @@ name: Daily Portfolio Rebalance
 
 on:
   schedule:
-    # 9:45 AM ET = 13:45 UTC, Monday–Friday
-    - cron: "45 13 * * 1-5"
+    # Market opens at 9:30 AM ET = 6:30 AM PT.
+    # GitHub cron uses UTC. We schedule BOTH DST and non-DST times so the bot
+    # always fires within a few minutes of market open year-round.
+    # The market_open check in broker.py + drift gate prevent duplicate trades.
+    - cron: "32 13 * * 1-5"   # 6:32 AM PDT (March–November)
+    - cron: "32 14 * * 1-5"   # 6:32 AM PST (November–March)
   workflow_dispatch:  # manual trigger
 
 jobs:

@@ -31,6 +31,16 @@ MIN_SINGLE_WEIGHT = 0.02
 DRAWDOWN_CIRCUIT_BREAKER = 0.15
 MAX_PORTFOLIO_VOL = 0.25
 
+# ── Alpha sleeve (individual stocks) ────────────────────────────────────────
+# Carves out a small % of the portfolio for high-momentum watchlist picks.
+# Picks top N watchlist stocks meeting both sentiment + momentum thresholds.
+ALPHA_SLEEVE_ENABLED = True
+ALPHA_SLEEVE_PCT = 0.15           # 15% of portfolio (~$150 of $1000)
+ALPHA_SLEEVE_PICKS = 3            # top 3 watchlist stocks
+ALPHA_MIN_SENTIMENT = 0.5         # need bullish sentiment to qualify
+ALPHA_MIN_5D_MOMENTUM = 0.05      # need +5% over 5 days
+ALPHA_MAX_PER_STOCK = 0.08        # cap any single stock at 8% of total portfolio
+
 # ── Universe ─────────────────────────────────────────────────────────────────
 ASSETS = [
     "QQQ",   # Nasdaq 100 large cap growth

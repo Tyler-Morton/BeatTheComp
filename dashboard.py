@@ -157,19 +157,28 @@ if not latest:
     st.info("No data yet. Once the bot runs, your holdings will appear here.")
 else:
     weights = {k: v for k, v in _parse_weights(latest.get("final_weights", "")).items() if v > 0.001}
-    notes = str(latest.get("notes", "")).strip()
+
+    # Handle NaN/None notes properly — empty CSV cells come back as float('nan')
+    raw_notes = latest.get("notes", "")
+    if raw_notes is None or (isinstance(raw_notes, float) and pd.isna(raw_notes)):
+        notes = ""
+    else:
+        notes = str(raw_notes).strip()
+        if notes.lower() == "nan":
+            notes = ""
+
     orders = int(latest.get("orders_placed", 0) or 0)
     strategy = str(latest.get("strategy", ""))
 
-    # Status badge
-    if notes and notes != "no_rebalance" and "breach" not in notes.lower() and notes != "":
-        status_color, status_text = "warning", f"⚠️ Risk check blocked rebalance: {notes}"
-    elif "breach" in notes.lower() or "fail" in notes.lower() or "spike" in notes.lower():
+    # Status badge — priority order: breach > no_rebalance > orders > clean
+    if "breach" in notes.lower() or "fail" in notes.lower() or "spike" in notes.lower():
         status_color, status_text = "warning", f"⚠️ Trades blocked — {notes}. Showing intended target weights."
     elif notes == "no_rebalance":
-        status_color, status_text = "info", f"✓ Portfolio on target — no rebalance needed today (Strategy: {strategy})"
+        status_color, status_text = "info", f"✓ Portfolio already on target — no rebalance needed today (Strategy: {strategy})"
     elif orders > 0:
         status_color, status_text = "success", f"✓ Rebalanced today — {orders} orders placed (Strategy: {strategy})"
+    elif notes:
+        status_color, status_text = "warning", f"⚠️ {notes}"
     else:
         status_color, status_text = "info", f"Strategy: {strategy}"
 
