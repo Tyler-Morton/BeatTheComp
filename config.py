@@ -26,20 +26,20 @@ STRATEGY_BY_REGIME = {
 RISK_FREE_RATE = 0.045
 LOOKBACK_DAYS = 252
 REBALANCE_DRIFT_THRESHOLD = 0.05
-MAX_SINGLE_WEIGHT = 0.35
+MAX_SINGLE_WEIGHT = 0.50         # was 0.35 — let winners take bigger positions
 MIN_SINGLE_WEIGHT = 0.02
-DRAWDOWN_CIRCUIT_BREAKER = 0.15
-MAX_PORTFOLIO_VOL = 0.25
+DRAWDOWN_CIRCUIT_BREAKER = 0.20  # was 0.15 — accept deeper drawdowns for upside
+MAX_PORTFOLIO_VOL = 0.30         # was 0.25 — allow more volatility in bull markets
 
 # ── Alpha sleeve (individual stocks) ────────────────────────────────────────
 # Carves out a small % of the portfolio for high-momentum watchlist picks.
 # Picks top N watchlist stocks meeting both sentiment + momentum thresholds.
 ALPHA_SLEEVE_ENABLED = True
-ALPHA_SLEEVE_PCT = 0.15           # 15% of portfolio (~$150 of $1000)
-ALPHA_SLEEVE_PICKS = 3            # top 3 watchlist stocks
+ALPHA_SLEEVE_PCT = 0.25           # was 0.15 — 25% to individual stock picks
+ALPHA_SLEEVE_PICKS = 5            # was 3 — more diversification across top names
 ALPHA_MIN_SENTIMENT = 0.5         # need bullish sentiment to qualify
 ALPHA_MIN_5D_MOMENTUM = 0.05      # need +5% over 5 days
-ALPHA_MAX_PER_STOCK = 0.08        # cap any single stock at 8% of total portfolio
+ALPHA_MAX_PER_STOCK = 0.10        # was 0.08 — allow up to 10% per pick
 # Quality filters — protect against bad picks from the wider trending pool
 ALPHA_MIN_PRICE = 3.0             # skip penny stocks ($3+)
 ALPHA_MAX_TODAY_PCT = 0.30        # skip stocks already up >30% today (avoid the top)

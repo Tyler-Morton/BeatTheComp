@@ -33,10 +33,24 @@ def _base_bounds(n: int) -> list[tuple[float, float]]:
 def _apply_regime_bounds(
     tickers: list[str], bounds: list[tuple], regime: str
 ) -> list[tuple]:
+    """Apply regime-specific weight caps.
+
+    RISK_ON:  growth-tilted. SHV capped at 5%, TLT at 10% so the bot can't
+              hide in cash during bull markets. Equities get room to run.
+    CHOPPY:   balanced. Force some defensive minimums but cap equity tilt.
+    RISK_OFF: defensive. Force big SHV/TLT minimums, cap equities tightly.
+    """
     result = list(bounds)
     for i, ticker in enumerate(tickers):
         lo, hi = result[i]
-        if regime == "CHOPPY":
+        if regime == "RISK_ON":
+            # Block the bot from being lazy and hiding in cash/bonds
+            if ticker == "SHV":
+                lo, hi = 0.0, 0.05
+            elif ticker == "TLT":
+                lo, hi = 0.0, 0.10
+            # Equity ETFs allowed up to MAX_SINGLE_WEIGHT (50%)
+        elif regime == "CHOPPY":
             if ticker == "GLD":
                 lo = max(lo, 0.10)
             elif ticker == "TLT":
@@ -50,7 +64,8 @@ def _apply_regime_bounds(
                 lo = max(lo, 0.20)
             elif ticker in _EQUITY_ETFS:
                 hi = min(hi, 0.15)
-        result[i] = (max(lo, MIN_SINGLE_WEIGHT), min(hi, 1.0))
+        # Final bounds — allow lo to be 0 in RISK_ON for SHV/TLT
+        result[i] = (max(lo, 0.0), min(hi, 1.0))
     return result
 
 
@@ -264,7 +279,8 @@ def _hrp_momentum(returns: pd.DataFrame) -> pd.Series:
 # ── Strategy selector ─────────────────────────────────────────────────────────
 
 ADAPTIVE_LOOKBACK_DAYS = 60       # window for measuring recent strategy performance
-ADAPTIVE_OVERRIDE_MARGIN = 0.15   # require best strategy to beat baseline by 15% Sharpe
+ADAPTIVE_OVERRIDE_MARGIN = 0.15   # default: best must beat baseline by 15% Sharpe
+ADAPTIVE_OVERRIDE_MARGIN_RISK_ON = 0.30   # tougher in bull markets — favor momentum
 
 
 def _score_strategy_recent(
@@ -334,8 +350,11 @@ def select_strategy(regime: str, returns: pd.DataFrame | None = None) -> str:
     log_scores = ", ".join(f"{k}={v:.2f}" for k, v in scores.items())
     logger.info("Recent Sharpe by strategy: %s", log_scores)
 
+    # Tougher override threshold in RISK_ON — bias toward HRP_MOMENTUM in bull markets
+    margin = ADAPTIVE_OVERRIDE_MARGIN_RISK_ON if regime == "RISK_ON" else ADAPTIVE_OVERRIDE_MARGIN
+
     # Override baseline only if the winner clearly beats it
-    if best_strat != baseline and best_score > baseline_score * (1.0 + ADAPTIVE_OVERRIDE_MARGIN):
+    if best_strat != baseline and best_score > baseline_score * (1.0 + margin):
         logger.info(
             "ADAPTIVE OVERRIDE: %s (Sharpe %.2f) beats regime pick %s (Sharpe %.2f) by %.0f%%",
             best_strat, best_score, baseline, baseline_score,
