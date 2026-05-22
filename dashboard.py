@@ -1,5 +1,6 @@
 """Streamlit dashboard — reads CSV logs, optional live API calls via buttons."""
 
+import json
 import os
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -18,7 +19,25 @@ from config import (
     REGIME_LOG, RISK_FREE_RATE, SENTIMENT_LOG, WATCHLIST_ALERTS, WATCHLIST_LOG,
 )
 
-st.set_page_config(page_title="Portfolio Bot", layout="wide", page_icon="📈")
+# ── Page config ────────────────────────────────────────────────────────────────
+
+st.set_page_config(
+    page_title="Portfolio Bot",
+    layout="wide",
+    page_icon="📈",
+    initial_sidebar_state="collapsed",
+)
+
+# Subtle styling
+st.markdown("""
+<style>
+    .stMetric { background: #1e2330; padding: 12px 16px; border-radius: 8px; }
+    .stMetric label { font-size: 0.75rem !important; opacity: 0.7; }
+    .stMetric div[data-testid="stMetricValue"] { font-size: 1.5rem !important; }
+    div[data-testid="stExpander"] { border: 1px solid #2a3142; border-radius: 8px; }
+    h2 { padding-top: 1rem; }
+</style>
+""", unsafe_allow_html=True)
 
 _STRATEGY_COLORS = {
     "MAX_SHARPE": "#4C72B0",
@@ -26,415 +45,472 @@ _STRATEGY_COLORS = {
     "HRP_MOMENTUM": "#C44E52",
     "SPY": "#8172B2",
 }
-_REGIME_COLORS = {"RISK_ON": "🟢", "CHOPPY": "🟡", "RISK_OFF": "🔴"}
+_REGIME_DISPLAY = {
+    "RISK_ON":  ("🟢", "Bull market — riding momentum"),
+    "CHOPPY":   ("🟡", "Sideways market — balanced risk parity"),
+    "RISK_OFF": ("🔴", "Defensive — heavy in cash & bonds"),
+}
 
 
 # ── Data loaders ───────────────────────────────────────────────────────────────
 
 @st.cache_data(ttl=60)
+def _load_csv(path: Path, parse_dates: list[str] | None = None) -> pd.DataFrame:
+    if not Path(path).exists():
+        return pd.DataFrame()
+    try:
+        return pd.read_csv(path, parse_dates=parse_dates or [])
+    except Exception:
+        return pd.DataFrame()
+
+
 def _load_daily() -> pd.DataFrame:
-    p = Path(DAILY_LOG)
-    if not p.exists():
-        return pd.DataFrame()
-    df = pd.read_csv(p, parse_dates=["date"])
-    return df.sort_values("date")
+    df = _load_csv(DAILY_LOG, ["date"])
+    if df.empty:
+        return df
+    return df.sort_values("date").reset_index(drop=True)
 
 
-@st.cache_data(ttl=60)
 def _load_sentiment() -> pd.DataFrame:
-    p = Path(SENTIMENT_LOG)
-    if not p.exists():
-        return pd.DataFrame()
-    return pd.read_csv(p, parse_dates=["timestamp"])
+    return _load_csv(SENTIMENT_LOG, ["timestamp"])
 
 
-@st.cache_data(ttl=60)
 def _load_regime() -> pd.DataFrame:
-    p = Path(REGIME_LOG)
-    if not p.exists():
-        return pd.DataFrame()
-    return pd.read_csv(p, parse_dates=["timestamp"])
+    return _load_csv(REGIME_LOG, ["timestamp"])
 
 
-@st.cache_data(ttl=60)
 def _load_watchlist() -> pd.DataFrame:
-    p = Path(WATCHLIST_LOG)
-    if not p.exists():
-        return pd.DataFrame()
-    return pd.read_csv(p, parse_dates=["timestamp"])
+    return _load_csv(WATCHLIST_LOG, ["timestamp"])
 
 
-@st.cache_data(ttl=60)
 def _load_alerts() -> pd.DataFrame:
-    p = Path(WATCHLIST_ALERTS)
-    if not p.exists():
-        return pd.DataFrame()
-    return pd.read_csv(p, parse_dates=["timestamp"])
+    return _load_csv(WATCHLIST_ALERTS, ["timestamp"])
 
 
-@st.cache_data(ttl=300)
+@st.cache_data(ttl=600)
 def _load_quarterly() -> pd.DataFrame:
     p = Path(QUARTERLY_BACKTEST)
     if not p.exists():
         return pd.DataFrame()
-    return pd.read_csv(p, index_col=0)
+    try:
+        return pd.read_csv(p, index_col=0)
+    except Exception:
+        return pd.DataFrame()
+
+
+def _parse_weights(raw) -> dict:
+    """Robust weight parsing — handles JSON, Python literal, or already-parsed dict."""
+    if isinstance(raw, dict):
+        return raw
+    if not raw or not isinstance(raw, str):
+        return {}
+    try:
+        return json.loads(raw)
+    except Exception:
+        try:
+            import ast
+            return ast.literal_eval(raw)
+        except Exception:
+            return {}
 
 
 def _latest_row(df: pd.DataFrame) -> dict:
-    if df.empty:
-        return {}
-    return df.iloc[-1].to_dict()
+    return {} if df.empty else df.iloc[-1].to_dict()
+
+
+# ── Load everything once ───────────────────────────────────────────────────────
+
+daily_df = _load_daily()
+sentiment_df = _load_sentiment()
+regime_df = _load_regime()
+wl_df = _load_watchlist()
+alerts_df = _load_alerts()
+qdf = _load_quarterly()
+latest = _latest_row(daily_df)
 
 
 # ── Header ─────────────────────────────────────────────────────────────────────
 
-st.title("📈 AI Portfolio Optimization Bot")
-st.caption("Powered by Claude Haiku · Alpaca · HRP Momentum Strategy")
+st.title("📈 AI Portfolio Bot")
 
-daily_df = _load_daily()
-latest = _latest_row(daily_df)
-regime_df = _load_regime()
 latest_regime = _latest_row(regime_df).get("regime", "—")
-regime_icon = _REGIME_COLORS.get(latest_regime, "⚪")
+regime_emoji, regime_desc = _REGIME_DISPLAY.get(latest_regime, ("⚪", ""))
 
 c1, c2, c3, c4, c5 = st.columns(5)
-c1.metric("Portfolio Value", f"${float(latest.get('portfolio_value', 0)):,.0f}" if latest else "—")
-c2.metric("Sharpe Ratio", f"{float(latest.get('sharpe', 0)):.2f}" if latest else "—")
-c3.metric("Expected Return", f"{float(latest.get('expected_return', 0)):.1%}" if latest else "—")
-c4.metric(f"Regime {regime_icon}", latest_regime)
-c5.metric("Last Rebalance", str(latest.get("date", "—"))[:10] if latest else "—")
+c1.metric("Portfolio", f"${float(latest.get('portfolio_value', 0)):,.0f}" if latest else "—")
+c2.metric("Sharpe", f"{float(latest.get('sharpe', 0)):.2f}" if latest else "—")
+c3.metric("Exp. Return", f"{float(latest.get('expected_return', 0)):.1%}" if latest else "—")
+c4.metric("Regime", f"{regime_emoji} {latest_regime}")
+c5.metric("Last Run", str(latest.get("date", "—"))[:10] if latest else "—")
+
+if regime_desc:
+    st.caption(regime_desc)
 
 st.divider()
 
-# ── Section 1 — Portfolio Allocations ─────────────────────────────────────────
 
-st.subheader("1 · Portfolio Allocations")
+# ── Section 1 — Current Holdings ───────────────────────────────────────────────
 
-if latest and "final_weights" in latest and latest["final_weights"]:
-    try:
-        import json as _json
-        weights_raw = latest["final_weights"]
-        weights: dict = _json.loads(weights_raw) if isinstance(weights_raw, str) else weights_raw
-        weights = {k: v for k, v in weights.items() if v > 0.001}  # drop near-zero
+st.header("📊 Holdings")
 
-        notes = str(latest.get("notes", ""))
-        orders = int(latest.get("orders_placed", 0) or 0)
-        if "breach" in notes.lower() or "block" in notes.lower() or "fail" in notes.lower():
-            st.warning(f"⚠️ Trades blocked today — risk check failed: **{notes}**  \nShowing intended target weights below.")
-        elif orders == 0:
-            st.info("ℹ️ No rebalance needed today — portfolio was already on target.")
+if not latest:
+    st.info("No data yet. Once the bot runs, your holdings will appear here.")
+else:
+    weights = {k: v for k, v in _parse_weights(latest.get("final_weights", "")).items() if v > 0.001}
+    notes = str(latest.get("notes", "")).strip()
+    orders = int(latest.get("orders_placed", 0) or 0)
+    strategy = str(latest.get("strategy", ""))
 
-        if weights:
-            portfolio_val = float(latest.get("portfolio_value", 0))
-            sentiment_df = _load_sentiment()
+    # Status badge
+    if notes and notes != "no_rebalance" and "breach" not in notes.lower() and notes != "":
+        status_color, status_text = "warning", f"⚠️ Risk check blocked rebalance: {notes}"
+    elif "breach" in notes.lower() or "fail" in notes.lower() or "spike" in notes.lower():
+        status_color, status_text = "warning", f"⚠️ Trades blocked — {notes}. Showing intended target weights."
+    elif notes == "no_rebalance":
+        status_color, status_text = "info", f"✓ Portfolio on target — no rebalance needed today (Strategy: {strategy})"
+    elif orders > 0:
+        status_color, status_text = "success", f"✓ Rebalanced today — {orders} orders placed (Strategy: {strategy})"
+    else:
+        status_color, status_text = "info", f"Strategy: {strategy}"
 
+    getattr(st, status_color)(status_text)
+
+    if weights:
+        portfolio_val = float(latest.get("portfolio_value", 0))
+
+        col_left, col_right = st.columns([1, 1.3])
+
+        with col_left:
             fig_donut = go.Figure(go.Pie(
                 labels=list(weights.keys()),
                 values=[v * 100 for v in weights.values()],
-                hole=0.45,
+                hole=0.55,
                 textinfo="label+percent",
+                textposition="outside",
+                marker=dict(line=dict(color="#1e2330", width=2)),
             ))
-            fig_donut.update_layout(height=380, showlegend=True, margin=dict(t=20, b=20))
-            st.plotly_chart(fig_donut)
+            fig_donut.update_layout(
+                height=360,
+                showlegend=False,
+                margin=dict(t=10, b=10, l=10, r=10),
+                paper_bgcolor="rgba(0,0,0,0)",
+            )
+            st.plotly_chart(fig_donut, width="stretch")
 
+        with col_right:
             rows = []
             for ticker, w in sorted(weights.items(), key=lambda x: -x[1]):
-                sent_score = "—"
+                sent_score = None
                 if not sentiment_df.empty:
                     s = sentiment_df[sentiment_df["ticker"] == ticker].tail(1)
                     if not s.empty:
-                        sent_score = f"{float(s.iloc[0]['score']):+.2f}"
-                dollar_val = f"${w * portfolio_val:,.0f}" if portfolio_val else "—"
+                        sent_score = float(s.iloc[0]["score"])
                 rows.append({
                     "Asset": ticker,
                     "Target %": f"{w:.1%}",
-                    "$Value": dollar_val,
-                    "Sentiment": sent_score,
+                    "$ Value": f"${w * portfolio_val:,.0f}" if portfolio_val else "—",
+                    "Sentiment": f"{sent_score:+.2f}" if sent_score is not None else "—",
                 })
-            st.dataframe(pd.DataFrame(rows), hide_index=True)
-        else:
-            st.info("No weight data in today's log yet.")
-    except Exception as e:
-        st.warning(f"Could not parse weights: {e}")
-else:
-    st.info("No allocation data yet — run main.py or wait for tomorrow's scheduled run.")
+            df_holdings = pd.DataFrame(rows)
+            st.dataframe(df_holdings, hide_index=True, width="stretch", height=360)
 
 st.divider()
 
-# ── Section 2 — Watchlist Alerts ──────────────────────────────────────────────
 
-st.subheader("2 · Watchlist Alerts")
-alerts_df = _load_alerts()
-wl_df = _load_watchlist()
+# ── Section 2 — Watchlist ──────────────────────────────────────────────────────
 
-if not wl_df.empty:
+st.header("👀 Watchlist")
+
+if wl_df.empty:
+    st.info("No watchlist data yet.")
+else:
     latest_wl = wl_df.sort_values("timestamp").drop_duplicates("ticker", keep="last")
     latest_wl = latest_wl.sort_values("today_pct", ascending=False)
     alert_tickers = set(alerts_df["ticker"].tolist()) if not alerts_df.empty else set()
 
     display = latest_wl[["ticker", "price", "today_pct", "mom_5d", "sentiment_score"]].copy()
-    display["Status"] = display["ticker"].apply(lambda t: "🚨 ALERT" if t in alert_tickers else "OK")
+    display["Status"] = display["ticker"].apply(lambda t: "🚨 ALERT" if t in alert_tickers else "✓ OK")
+    display = display.rename(columns={
+        "ticker": "Ticker", "price": "Price", "today_pct": "Today",
+        "mom_5d": "5-Day", "sentiment_score": "Sentiment",
+    })
 
-    def _color_row(row):
-        if row["Status"] == "🚨 ALERT":
-            return ["background-color: #fff3cd"] * len(row)
-        if row["today_pct"] > 0.05:
-            return ["background-color: #d4edda"] * len(row)
-        if row["today_pct"] < -0.05:
-            return ["background-color: #f8d7da"] * len(row)
+    def _style_row(row):
+        if "ALERT" in row["Status"]:
+            return ["background-color: rgba(255, 193, 7, 0.15)"] * len(row)
+        if row["Today"] > 0.05:
+            return ["background-color: rgba(40, 167, 69, 0.10)"] * len(row)
+        if row["Today"] < -0.05:
+            return ["background-color: rgba(220, 53, 69, 0.10)"] * len(row)
         return [""] * len(row)
 
-    styled = display.style.apply(_color_row, axis=1).format({
-        "price": "${:.2f}", "today_pct": "{:.1%}", "mom_5d": "{:.1%}", "sentiment_score": "{:.2f}",
+    styled = display.style.apply(_style_row, axis=1).format({
+        "Price": "${:.2f}", "Today": "{:+.1%}", "5-Day": "{:+.1%}", "Sentiment": "{:+.2f}",
     })
-    st.dataframe(styled, hide_index=True)
+    st.dataframe(styled, hide_index=True, width="stretch")
 
     if not alerts_df.empty:
-        st.warning(f"⚠️ {len(alerts_df)} active alerts today")
-        st.dataframe(
-            alerts_df.sort_values("timestamp", ascending=False).head(20),
-            use_container_width=True, hide_index=True,
-        )
-else:
-    st.info("No watchlist data yet.")
+        with st.expander(f"🚨 {len(alerts_df)} alert(s) — view reasons"):
+            alerts_show = alerts_df.sort_values("timestamp", ascending=False).head(20)
+            st.dataframe(alerts_show, hide_index=True, width="stretch")
 
 st.divider()
 
-# ── Section 3 — Equity Curve ──────────────────────────────────────────────────
 
-st.subheader("3 · Equity Curve vs SPY")
+# ── Section 3 — Equity Curve ───────────────────────────────────────────────────
 
-if not daily_df.empty and "portfolio_value" in daily_df.columns:
+st.header("📈 Performance vs SPY")
+
+if daily_df.empty or "portfolio_value" not in daily_df.columns or len(daily_df) < 2:
+    st.info("Equity curve will appear after a few days of data.")
+else:
     daily_df["date"] = pd.to_datetime(daily_df["date"]).dt.normalize()
     first_val = daily_df["portfolio_value"].iloc[0]
     norm_port = daily_df["portfolio_value"] / first_val * 100
 
     fig_eq = go.Figure()
-    fig_eq.add_trace(go.Scatter(x=daily_df["date"], y=norm_port, name="Portfolio",
-                                 line=dict(color="#C44E52", width=2)))
+    fig_eq.add_trace(go.Scatter(
+        x=daily_df["date"], y=norm_port, name="Your Portfolio",
+        line=dict(color="#C44E52", width=2.5),
+        fill="tozeroy", fillcolor="rgba(196, 78, 82, 0.1)",
+    ))
 
-    # SPY overlay from yfinance if available
+    # SPY overlay using batch downloader (rate-limit safe)
     try:
-        import yfinance as yf
-        start_d = daily_df["date"].min()
-        spy_raw = yf.download("SPY", start=start_d, auto_adjust=True, progress=False, multi_level_index=False)
-        if not spy_raw.empty:
-            spy_norm = spy_raw["Close"] / spy_raw["Close"].iloc[0] * 100
-            fig_eq.add_trace(go.Scatter(x=spy_norm.index, y=spy_norm.values, name="SPY",
-                                         line=dict(color="#8172B2", width=2, dash="dash")))
+        from data import fetch_prices_range
+        spy_prices = fetch_prices_range(
+            ["SPY"], daily_df["date"].min().to_pydatetime(), datetime.today()
+        )
+        if not spy_prices.empty and "SPY" in spy_prices.columns:
+            spy_norm = spy_prices["SPY"] / spy_prices["SPY"].iloc[0] * 100
+            fig_eq.add_trace(go.Scatter(
+                x=spy_norm.index, y=spy_norm.values, name="SPY",
+                line=dict(color="#8172B2", width=2, dash="dash"),
+            ))
     except Exception:
         pass
 
-    cagr = ((norm_port.iloc[-1] / 100) ** (365.25 / max((daily_df["date"].iloc[-1] - daily_df["date"].iloc[0]).days, 1)) - 1) if len(norm_port) > 1 else 0
-    st.caption(f"Portfolio CAGR ≈ {cagr:.1%} since first run")
-    fig_eq.update_layout(height=400, xaxis_title="Date", yaxis_title="Growth of $100",
-                          legend=dict(orientation="h", y=1.02))
-    st.plotly_chart(fig_eq)
-else:
-    st.info("No equity history yet.")
+    days = max((daily_df["date"].iloc[-1] - daily_df["date"].iloc[0]).days, 1)
+    total_ret = norm_port.iloc[-1] / 100 - 1
+    cagr = (norm_port.iloc[-1] / 100) ** (365.25 / days) - 1 if days > 0 else 0
+
+    c1, c2 = st.columns(2)
+    c1.metric("Total Return", f"{total_ret:+.2%}")
+    c2.metric("Annualized (CAGR)", f"{cagr:+.2%}")
+
+    fig_eq.update_layout(
+        height=400, xaxis_title="", yaxis_title="Growth of $100",
+        legend=dict(orientation="h", y=1.05, x=0),
+        paper_bgcolor="rgba(0,0,0,0)",
+        plot_bgcolor="rgba(255,255,255,0.02)",
+    )
+    st.plotly_chart(fig_eq, width="stretch")
 
 st.divider()
 
-# ── Section 4 — Quarterly Performance ────────────────────────────────────────
 
-st.subheader("4 · Quarterly Backtest Performance")
-qdf = _load_quarterly()
+# ── Section 4 — Backtest Performance ──────────────────────────────────────────
 
-if not qdf.empty:
+st.header("🎯 Backtest — 2019 to Today")
+
+if qdf.empty:
+    st.info("Run `python3 backtest.py` to populate backtest data.")
+else:
     strategies = [c for c in qdf.columns if c in ["MAX_SHARPE", "HRP", "HRP_MOMENTUM", "SPY"]]
-    selected = st.multiselect("Strategies to display", strategies, default=strategies)
+    with st.expander("Quarterly Returns Chart", expanded=True):
+        selected = st.multiselect(
+            "Strategies",
+            strategies,
+            default=strategies,
+            label_visibility="collapsed",
+        )
+        if selected:
+            fig_q = go.Figure()
+            for strat in selected:
+                if strat in qdf.columns:
+                    fig_q.add_trace(go.Bar(
+                        name=strat,
+                        x=qdf.index.tolist(),
+                        y=(qdf[strat] * 100).tolist(),
+                        marker_color=_STRATEGY_COLORS.get(strat),
+                    ))
+            fig_q.update_layout(
+                barmode="group", height=420,
+                xaxis_title="", yaxis_title="Quarterly Return (%)",
+                legend=dict(orientation="h", y=1.05),
+                paper_bgcolor="rgba(0,0,0,0)",
+                plot_bgcolor="rgba(255,255,255,0.02)",
+            )
+            st.plotly_chart(fig_q, width="stretch")
 
-    if selected:
-        fig_q = go.Figure()
-        for strat in selected:
+    # Win-rate summary
+    if "SPY" in qdf.columns:
+        win_cols = st.columns(3)
+        for i, strat in enumerate(["MAX_SHARPE", "HRP", "HRP_MOMENTUM"]):
             if strat in qdf.columns:
-                fig_q.add_trace(go.Bar(
-                    name=strat,
-                    x=qdf.index.tolist(),
-                    y=(qdf[strat] * 100).tolist(),
-                    marker_color=_STRATEGY_COLORS.get(strat),
-                ))
-        fig_q.update_layout(
-            barmode="group", height=450,
-            xaxis_title="Quarter", yaxis_title="Return (%)",
-            legend=dict(orientation="h", y=1.02),
-        )
-        st.plotly_chart(fig_q)
+                wins = (qdf[strat] > qdf["SPY"]).sum()
+                total = len(qdf)
+                win_cols[i].metric(
+                    f"{strat} beat SPY",
+                    f"{wins}/{total}",
+                    f"{wins/total:.0%}",
+                )
+
+st.divider()
+
+
+# ── Section 5 — Recent Activity ───────────────────────────────────────────────
+
+st.header("📜 Recent Activity")
+
+if daily_df.empty:
+    st.info("No activity logged yet.")
 else:
-    st.info("Run backtest.py to populate quarterly data.")
+    recent = daily_df.tail(30).copy()
+    recent["date"] = pd.to_datetime(recent["date"]).dt.date
 
-st.divider()
-
-# ── Section 5 — Market Condition Breakdown ────────────────────────────────────
-
-st.subheader("5 · Market Condition Breakdown")
-
-if not qdf.empty and not regime_df.empty:
-    regime_col: list[str] = []
-    for q_str in qdf.index:
-        try:
-            q_end = pd.Period(q_str, "Q").end_time
-            diffs = abs(pd.to_datetime(regime_df["timestamp"]) - q_end)
-            nearest_idx = diffs.idxmin()
-            regime_col.append(regime_df.loc[nearest_idx, "regime"])
-        except Exception:
-            regime_col.append("CHOPPY")
-
-    qdf_r = qdf.copy()
-    qdf_r["Regime"] = regime_col if len(regime_col) == len(qdf_r) else "CHOPPY"
-
-    strat_cols = [c for c in qdf.columns if c != "SPY"]
-    records = []
-    for _, row in qdf_r.iterrows():
-        for strat in strat_cols:
-            spy_ret = row.get("SPY", 0.0)
-            records.append({
-                "Regime": row["Regime"], "Strategy": strat,
-                "Avg Return": row.get(strat, 0.0) * 100,
-                "Beat SPY": 1 if row.get(strat, 0.0) > spy_ret else 0,
-            })
-    df_cond = pd.DataFrame(records)
-    pivot = df_cond.groupby(["Regime", "Strategy"])["Avg Return"].mean().unstack()
-    fig_heat = px.imshow(pivot, text_auto=".1f", color_continuous_scale="RdYlGn",
-                          color_continuous_midpoint=0, title="Avg Quarterly Return by Regime (%)")
-    st.plotly_chart(fig_heat)
-else:
-    st.info("Backtest and regime data needed for this section.")
-
-st.divider()
-
-# ── Section 6 — Efficient Frontier ───────────────────────────────────────────
-
-st.subheader("6 · Efficient Frontier")
-
-with st.spinner("Generating frontier…"):
-    try:
-        from data import fetch_prices, get_returns
-        prices_ef = fetch_prices(ASSETS, 252)
-        returns_ef = get_returns(prices_ef)
-        mean_r = returns_ef.mean().values * 252
-        cov_r = returns_ef.cov().values * 252
-        n_assets = len(ASSETS[:len(mean_r)])
-
-        n_sim = 3000
-        sim_ret, sim_vol = [], []
-        for _ in range(n_sim):
-            w = np.random.dirichlet(np.ones(len(mean_r)))
-            sim_ret.append(float(w @ mean_r))
-            sim_vol.append(float(np.sqrt(w @ cov_r @ w)))
-
-        fig_ef = go.Figure()
-        fig_ef.add_trace(go.Scatter(x=sim_vol, y=sim_ret, mode="markers",
-                                     marker=dict(color="lightgrey", size=3), name="Random portfolios"))
-
-        # Current portfolio
-        if latest and "final_weights" in latest and latest["final_weights"]:
-            try:
-                import ast
-                cur_w_dict = ast.literal_eval(latest["final_weights"]) if isinstance(latest["final_weights"], str) else latest["final_weights"]
-                tickers_ef = returns_ef.columns.tolist()
-                cur_w = np.array([cur_w_dict.get(t, 0.0) for t in tickers_ef])
-                cur_w /= cur_w.sum() if cur_w.sum() > 0 else 1
-                cur_ret = float(cur_w @ mean_r)
-                cur_vol = float(np.sqrt(cur_w @ cov_r @ cur_w))
-                fig_ef.add_trace(go.Scatter(x=[cur_vol], y=[cur_ret], mode="markers",
-                                             marker=dict(color="gold", size=16, symbol="star"),
-                                             name="Current portfolio"))
-            except Exception:
-                pass
-
-        # Min variance
-        from scipy.optimize import minimize
-        res_mv = minimize(
-            lambda w: float(np.sqrt(w @ cov_r @ w)),
-            x0=np.ones(len(mean_r)) / len(mean_r),
-            method="SLSQP",
-            bounds=[(0, 1)] * len(mean_r),
-            constraints=[{"type": "eq", "fun": lambda w: w.sum() - 1}],
-        )
-        mv_vol = float(np.sqrt(res_mv.x @ cov_r @ res_mv.x))
-        mv_ret = float(res_mv.x @ mean_r)
-        fig_ef.add_trace(go.Scatter(x=[mv_vol], y=[mv_ret], mode="markers",
-                                     marker=dict(color="blue", size=12, symbol="circle"),
-                                     name="Min variance"))
-
-        fig_ef.update_layout(height=450, xaxis_title="Annual Volatility",
-                              yaxis_title="Expected Annual Return",
-                              xaxis_tickformat=".0%", yaxis_tickformat=".0%")
-        st.plotly_chart(fig_ef)
-    except Exception as exc:
-        st.warning(f"Efficient frontier unavailable: {exc}")
-
-st.divider()
-
-# ── Section 7 — Rebalance Log ─────────────────────────────────────────────────
-
-st.subheader("7 · Rebalance Log (Last 30 Days)")
-
-if not daily_df.empty:
-    cutoff = pd.Timestamp.today() - pd.Timedelta(days=30)
-    recent = daily_df[daily_df["date"] >= cutoff] if "date" in daily_df.columns else daily_df.tail(30)
-
-    if not recent.empty and "sharpe" in recent.columns:
-        # Sharpe over time
-        fig_sh = go.Figure()
-        fig_sh.add_trace(go.Scatter(
-            x=recent["date"], y=recent["sharpe"].astype(float),
-            fill="tozeroy", line=dict(color="#4C72B0"), name="Sharpe",
-        ))
-        fig_sh.update_layout(height=300, xaxis_title="Date", yaxis_title="Sharpe Ratio")
-        st.plotly_chart(fig_sh)
+    cols_to_show = ["date", "strategy", "regime", "portfolio_value", "sharpe", "orders_placed", "notes"]
+    cols_present = [c for c in cols_to_show if c in recent.columns]
+    display_recent = recent[cols_present].iloc[::-1]  # most recent first
 
     st.dataframe(
-        recent[["date", "strategy", "regime", "portfolio_value", "sharpe", "orders_placed"]].tail(30),
-        use_container_width=True, hide_index=True,
+        display_recent,
+        hide_index=True,
+        width="stretch",
+        column_config={
+            "date": "Date",
+            "strategy": "Strategy",
+            "regime": "Regime",
+            "portfolio_value": st.column_config.NumberColumn("Portfolio $", format="$%.0f"),
+            "sharpe": st.column_config.NumberColumn("Sharpe", format="%.2f"),
+            "orders_placed": st.column_config.NumberColumn("Orders", format="%d"),
+            "notes": "Notes",
+        },
     )
-else:
-    st.info("No daily log data yet.")
 
 st.divider()
 
-# ── Section 8 — Controls ──────────────────────────────────────────────────────
 
-st.subheader("8 · Controls")
+# ── Section 6 — Live Tools ────────────────────────────────────────────────────
 
-col_ctrl1, col_ctrl2 = st.columns(2)
+st.header("🛠️ Live Tools")
 
-with col_ctrl1:
-    st.markdown("**Strategy**")
-    strategy_choice = st.selectbox("Active strategy", ["HRP_MOMENTUM", "HRP", "MAX_SHARPE"])
-    rf_rate = st.slider("Risk-free rate", 0.0, 0.10, RISK_FREE_RATE, 0.005, format="%.3f")
+tab1, tab2, tab3 = st.tabs(["Dry Run", "Force Rebalance", "Efficient Frontier"])
 
-    if st.button("🔍 Dry Run Optimizer (no trades)"):
-        with st.spinner("Running optimizer…"):
+with tab1:
+    st.markdown("**Test the optimizer without placing trades.**")
+    strategy_choice = st.selectbox("Strategy", ["HRP_MOMENTUM", "HRP", "MAX_SHARPE"], key="dr_strat")
+
+    if st.button("🔍 Run Optimizer", key="dr_btn"):
+        with st.spinner("Optimizing…"):
             try:
-                import importlib
-                import config as cfg
-                cfg.RISK_FREE_RATE = rf_rate  # live update for this run
                 from data import fetch_prices, get_returns
                 from optimizer import optimize
                 from regime import detect_regime
 
-                prices_dr = fetch_prices(ASSETS, 252)
-                returns_dr = get_returns(prices_dr)
+                prices_dr = fetch_prices(list(set(ASSETS + ["SPY", "TLT"])), 252)
+                returns_dr = get_returns(prices_dr[[c for c in ASSETS if c in prices_dr.columns]])
                 regime_dr = detect_regime(prices_dr.get("SPY"), prices_dr.get("TLT"))
                 result_dr = optimize(strategy=strategy_choice, returns=returns_dr, regime=regime_dr)
 
-                st.success(f"Regime: {regime_dr} | Sharpe: {result_dr['sharpe_ratio']:.2f} | "
-                           f"Vol: {result_dr['annual_volatility']:.1%}")
-                st.json(result_dr["weights"])
-            except Exception as exc:
-                st.error(f"Optimizer error: {exc}")
+                m1, m2, m3 = st.columns(3)
+                m1.metric("Regime", regime_dr)
+                m2.metric("Sharpe", f"{result_dr['sharpe_ratio']:.2f}")
+                m3.metric("Volatility", f"{result_dr['annual_volatility']:.1%}")
 
-with col_ctrl2:
-    st.markdown("**Actions**")
-    if st.button("⚡ Force Rebalance NOW"):
-        st.warning("This will place real/paper trades. Are you sure?")
-        if st.button("✅ Confirm Rebalance"):
-            with st.spinner("Running full pipeline…"):
-                try:
-                    import main as m
-                    m.main()
-                    st.success("Rebalance complete. Refresh to see updated logs.")
-                except Exception as exc:
-                    st.error(f"Pipeline error: {exc}")
+                weights_dr = {k: v for k, v in result_dr["weights"].items() if v > 0.001}
+                df_dr = pd.DataFrame([
+                    {"Asset": t, "Weight": f"{w:.1%}"}
+                    for t, w in sorted(weights_dr.items(), key=lambda x: -x[1])
+                ])
+                st.dataframe(df_dr, hide_index=True, width="stretch")
+            except Exception as exc:
+                st.error(f"Optimizer failed: {exc}")
+
+with tab2:
+    st.warning("⚠️ This places real paper trades on Alpaca. Use only when needed.")
+    confirm = st.checkbox("I want to force a rebalance now")
+    if confirm and st.button("⚡ Run Full Pipeline", type="primary", key="fr_btn"):
+        with st.spinner("Running pipeline — this takes ~1-2 minutes…"):
+            try:
+                import importlib
+                import main as m
+                importlib.reload(m)
+                m.main()
+                st.success("✓ Done — refresh the page to see updated logs.")
+                st.cache_data.clear()
+            except SystemExit:
+                st.info("Market is closed — bot exited cleanly. Nothing was traded.")
+            except Exception as exc:
+                st.error(f"Pipeline error: {exc}")
+
+with tab3:
+    st.markdown("**Where your portfolio sits on the risk/return frontier.**")
+    if st.button("Generate Frontier", key="ef_btn"):
+        with st.spinner("Computing 3000 random portfolios…"):
+            try:
+                from data import fetch_prices, get_returns
+                from scipy.optimize import minimize
+
+                prices_ef = fetch_prices(ASSETS, 252)
+                returns_ef = get_returns(prices_ef)
+                mean_r = returns_ef.mean().values * 252
+                cov_r = returns_ef.cov().values * 252
+
+                sim_ret, sim_vol = [], []
+                for _ in range(3000):
+                    w = np.random.dirichlet(np.ones(len(mean_r)))
+                    sim_ret.append(float(w @ mean_r))
+                    sim_vol.append(float(np.sqrt(w @ cov_r @ w)))
+
+                fig_ef = go.Figure()
+                fig_ef.add_trace(go.Scatter(
+                    x=sim_vol, y=sim_ret, mode="markers",
+                    marker=dict(color="lightgrey", size=4, opacity=0.5),
+                    name="Random portfolios", hoverinfo="skip",
+                ))
+
+                # Current portfolio
+                if latest and latest.get("final_weights"):
+                    cur_w_dict = _parse_weights(latest["final_weights"])
+                    tickers_ef = returns_ef.columns.tolist()
+                    cur_w = np.array([cur_w_dict.get(t, 0.0) for t in tickers_ef])
+                    if cur_w.sum() > 0:
+                        cur_w /= cur_w.sum()
+                        cur_ret = float(cur_w @ mean_r)
+                        cur_vol = float(np.sqrt(cur_w @ cov_r @ cur_w))
+                        fig_ef.add_trace(go.Scatter(
+                            x=[cur_vol], y=[cur_ret], mode="markers",
+                            marker=dict(color="gold", size=20, symbol="star"),
+                            name="Your portfolio",
+                        ))
+
+                # Min variance
+                res_mv = minimize(
+                    lambda w: float(np.sqrt(w @ cov_r @ w)),
+                    x0=np.ones(len(mean_r)) / len(mean_r),
+                    method="SLSQP",
+                    bounds=[(0, 1)] * len(mean_r),
+                    constraints=[{"type": "eq", "fun": lambda w: w.sum() - 1}],
+                )
+                fig_ef.add_trace(go.Scatter(
+                    x=[float(np.sqrt(res_mv.x @ cov_r @ res_mv.x))],
+                    y=[float(res_mv.x @ mean_r)],
+                    mode="markers",
+                    marker=dict(color="cyan", size=14, symbol="diamond"),
+                    name="Min variance",
+                ))
+
+                fig_ef.update_layout(
+                    height=500,
+                    xaxis_title="Annual Volatility", yaxis_title="Expected Annual Return",
+                    xaxis_tickformat=".0%", yaxis_tickformat=".0%",
+                    paper_bgcolor="rgba(0,0,0,0)",
+                    plot_bgcolor="rgba(255,255,255,0.02)",
+                )
+                st.plotly_chart(fig_ef, width="stretch")
+            except Exception as exc:
+                st.error(f"Frontier unavailable: {exc}")
+
+st.divider()
+st.caption("Built with Claude · Alpaca · Streamlit")

@@ -41,13 +41,21 @@ def _build_prompt(ticker: str) -> str:
 
 
 def _parse_json(text: str) -> dict:
-    """Extract JSON object from model text output."""
-    match = re.search(r"\{.*?\}", text, re.DOTALL)
-    if match:
+    """Extract JSON object from model text output. Handles nested brackets."""
+    # Greedy match — pulls the largest {...} block (handles nested arrays/objects)
+    matches = re.findall(r"\{[^{}]*(?:\{[^{}]*\}[^{}]*)*\}", text, re.DOTALL)
+    for m in matches:
         try:
-            return json.loads(match.group())
+            data = json.loads(m)
+            if isinstance(data, dict) and "score" in data:
+                return data
         except json.JSONDecodeError:
-            pass
+            continue
+    # Last resort — try the whole text as JSON
+    try:
+        return json.loads(text.strip())
+    except Exception:
+        pass
     return {"score": 0.0, "confidence": 0.0, "summary": "parse error", "key_headlines": []}
 
 

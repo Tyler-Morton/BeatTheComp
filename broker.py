@@ -18,11 +18,15 @@ def _trading_client():
     global _client
     if _client is None:
         from alpaca.trading.client import TradingClient
+        # Paper vs live controlled by ALPACA_BASE_URL — only one place to change for live trading
+        base_url = os.getenv("ALPACA_BASE_URL", "https://paper-api.alpaca.markets")
+        is_paper = "paper" in base_url.lower()
         _client = TradingClient(
             api_key=os.getenv("ALPACA_API_KEY", ""),
             secret_key=os.getenv("ALPACA_SECRET_KEY", ""),
-            paper=True,
+            paper=is_paper,
         )
+        logger.info("Alpaca client initialized (%s)", "paper" if is_paper else "LIVE")
     return _client
 
 

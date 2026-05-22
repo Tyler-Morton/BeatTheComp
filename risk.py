@@ -111,6 +111,8 @@ def check_correlation(returns: pd.DataFrame) -> tuple[bool, str]:
 def should_rebalance(current_weights: dict, target_weights: dict) -> bool:
     """Return True if any position drifted beyond REBALANCE_DRIFT_THRESHOLD."""
     all_tickers = set(current_weights) | set(target_weights)
+    if not all_tickers:
+        return False  # nothing to compare
     max_drift = max(
         abs(current_weights.get(t, 0.0) - target_weights.get(t, 0.0))
         for t in all_tickers
