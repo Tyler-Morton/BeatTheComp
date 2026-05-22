@@ -1,0 +1,2 @@
+date,strategy,regime,portfolio_value,sharpe,expected_return,annual_vol,orders_placed,final_weights,notes
+2026-05-22,HRP_MOMENTUM,RISK_ON,1000.0,0.6901,0.1033,0.0845,0,{},Concentration breach: SHV at 52.2% > 35.0%
