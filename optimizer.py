@@ -171,9 +171,22 @@ def _hrp_momentum(returns: pd.DataFrame) -> pd.Series:
             zeroed_mass += weights[ticker]
             weights[ticker] = 0.0
 
-    # Move failed allocations to SHV (cash)
-    if zeroed_mass > 0 and "SHV" in weights.index:
-        weights["SHV"] = min(weights["SHV"] + zeroed_mass, 1.0)
+    # Move failed allocations: half to SHV (capped at MAX_SINGLE_WEIGHT),
+    # remainder spread across passing assets so SHV never breaches concentration limit.
+    if zeroed_mass > 0:
+        live_assets = [t for t in weights.index if t != "SHV" and weights[t] > 0]
+        shv_room = MAX_SINGLE_WEIGHT - weights.get("SHV", 0.0)
+        shv_add = min(zeroed_mass, max(shv_room, 0.0))
+        remainder = zeroed_mass - shv_add
+        if "SHV" in weights.index:
+            weights["SHV"] += shv_add
+        if remainder > 0 and live_assets:
+            per_asset = remainder / len(live_assets)
+            for t in live_assets:
+                weights[t] += per_asset
+        elif remainder > 0 and "SHV" in weights.index:
+            # No live assets — SHV absorbs everything (override cap)
+            weights["SHV"] += remainder
 
     # Relative momentum: +20% bonus to top 3, take from bottom 3
     live = weights[weights > 0].index.tolist()

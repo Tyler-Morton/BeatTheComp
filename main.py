@@ -106,7 +106,7 @@ def main() -> None:
             "expected_return": result["expected_annual_return"],
             "annual_vol": result["annual_volatility"],
             "orders_placed": 0,
-            "final_weights": json.dumps(current_weights),
+            "final_weights": json.dumps(target_weights),   # save intended weights for dashboard
             "notes": "; ".join(failures),
         })
         logger.warning("Pipeline aborted — risk checks failed.")

@@ -112,35 +112,52 @@ st.subheader("1 · Portfolio Allocations")
 
 if latest and "final_weights" in latest and latest["final_weights"]:
     try:
-        import ast
+        import json as _json
         weights_raw = latest["final_weights"]
-        weights: dict = ast.literal_eval(weights_raw) if isinstance(weights_raw, str) else weights_raw
-        sentiment_df = _load_sentiment()
+        weights: dict = _json.loads(weights_raw) if isinstance(weights_raw, str) else weights_raw
+        weights = {k: v for k, v in weights.items() if v > 0.001}  # drop near-zero
 
-        fig_donut = go.Figure(go.Pie(
-            labels=list(weights.keys()),
-            values=[v * 100 for v in weights.values()],
-            hole=0.45,
-            textinfo="label+percent",
-        ))
-        fig_donut.update_layout(height=350, showlegend=False, margin=dict(t=20, b=20))
-        st.plotly_chart(fig_donut)
+        notes = str(latest.get("notes", ""))
+        orders = int(latest.get("orders_placed", 0) or 0)
+        if "breach" in notes.lower() or "block" in notes.lower() or "fail" in notes.lower():
+            st.warning(f"⚠️ Trades blocked today — risk check failed: **{notes}**  \nShowing intended target weights below.")
+        elif orders == 0:
+            st.info("ℹ️ No rebalance needed today — portfolio was already on target.")
 
-        # Weight table
-        rows = []
-        for ticker, w in weights.items():
-            sent_score = "—"
-            if not sentiment_df.empty:
-                s = sentiment_df[sentiment_df["ticker"] == ticker].tail(1)
-                if not s.empty:
-                    sent_score = f"{float(s.iloc[0]['score']):.2f}"
-            rows.append({"Asset": ticker, "Sentiment": sent_score,
-                         "Target %": f"{w:.1%}", "Drift": "—", "$Value": "—"})
-        st.dataframe(pd.DataFrame(rows), hide_index=True)
-    except Exception:
-        st.info("Weight data not yet available.")
+        if weights:
+            portfolio_val = float(latest.get("portfolio_value", 0))
+            sentiment_df = _load_sentiment()
+
+            fig_donut = go.Figure(go.Pie(
+                labels=list(weights.keys()),
+                values=[v * 100 for v in weights.values()],
+                hole=0.45,
+                textinfo="label+percent",
+            ))
+            fig_donut.update_layout(height=380, showlegend=True, margin=dict(t=20, b=20))
+            st.plotly_chart(fig_donut)
+
+            rows = []
+            for ticker, w in sorted(weights.items(), key=lambda x: -x[1]):
+                sent_score = "—"
+                if not sentiment_df.empty:
+                    s = sentiment_df[sentiment_df["ticker"] == ticker].tail(1)
+                    if not s.empty:
+                        sent_score = f"{float(s.iloc[0]['score']):+.2f}"
+                dollar_val = f"${w * portfolio_val:,.0f}" if portfolio_val else "—"
+                rows.append({
+                    "Asset": ticker,
+                    "Target %": f"{w:.1%}",
+                    "$Value": dollar_val,
+                    "Sentiment": sent_score,
+                })
+            st.dataframe(pd.DataFrame(rows), hide_index=True)
+        else:
+            st.info("No weight data in today's log yet.")
+    except Exception as e:
+        st.warning(f"Could not parse weights: {e}")
 else:
-    st.info("No allocation data yet. Run main.py to generate.")
+    st.info("No allocation data yet — run main.py or wait for tomorrow's scheduled run.")
 
 st.divider()
 
@@ -188,6 +205,7 @@ st.divider()
 st.subheader("3 · Equity Curve vs SPY")
 
 if not daily_df.empty and "portfolio_value" in daily_df.columns:
+    daily_df["date"] = pd.to_datetime(daily_df["date"]).dt.normalize()
     first_val = daily_df["portfolio_value"].iloc[0]
     norm_port = daily_df["portfolio_value"] / first_val * 100
 
