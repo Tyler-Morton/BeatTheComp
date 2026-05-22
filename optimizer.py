@@ -88,25 +88,48 @@ def _apply_sentiment_bounds(
     return result
 
 
-def _clip_and_renorm(weights: pd.Series, bounds: list[tuple]) -> pd.Series:
-    """Enforce max bounds, redistribute excess to assets that still have room.
+def _clip_and_renorm(weights: pd.Series, bounds: dict | list) -> pd.Series:
+    """Enforce BOTH min and max bounds, redistribute to keep sum = 1.0.
 
-    Tracks 'at cap' status PERSISTENTLY across iterations so capped assets
-    never receive more redistribution. Falls back to spreading across zero-weight
-    assets when proportional targets are exhausted.
+    bounds dict form {ticker: (lo, hi)} is preferred — order-safe when weights
+    have been reordered by HRP clustering.
+
+    Algorithm:
+      1. Force-promote anything below its min (RISK_OFF SHV ≥ 30%, etc.)
+      2. Iteratively cap anything above its max, redistribute to eligible assets
+      3. Final safety: hard-cap any leftover violations
     """
     tickers = weights.index.tolist()
-    max_bounds = {tickers[i]: bounds[i][1] for i in range(len(tickers))}
+    if isinstance(bounds, dict):
+        min_bounds = {t: bounds[t][0] for t in tickers if t in bounds}
+        max_bounds = {t: bounds[t][1] for t in tickers if t in bounds}
+    else:
+        min_bounds = {tickers[i]: bounds[i][0] for i in range(len(tickers))}
+        max_bounds = {tickers[i]: bounds[i][1] for i in range(len(tickers))}
 
     total = weights.sum()
     if total > 0:
         weights = weights / total
 
-    # Persistent set: any ticker ever at-or-above its cap, can never grow further
-    locked: set[str] = set()
+    # Step 1: Force-promote anything below its minimum (required floors)
+    # This funds the promotion by pulling proportionally from other assets.
+    needed = 0.0
+    for t in tickers:
+        if weights[t] < min_bounds[t]:
+            needed += min_bounds[t] - weights[t]
+            weights[t] = min_bounds[t]
+    if needed > 0:
+        # Pull from assets that are above their min (have donate-able weight)
+        donors = [t for t in tickers if weights[t] > min_bounds[t] + 1e-9]
+        donor_excess = sum(weights[t] - min_bounds[t] for t in donors)
+        if donor_excess > 0:
+            scale = min(needed / donor_excess, 1.0)
+            for t in donors:
+                weights[t] -= (weights[t] - min_bounds[t]) * scale
 
+    # Step 2: Iteratively cap maximums, redistribute excess to assets with room
+    locked: set[str] = set()
     for _ in range(50):
-        # 1. Identify overflow and force-cap
         excess = 0.0
         for t in tickers:
             if weights[t] > max_bounds[t] + 1e-9:
@@ -114,18 +137,16 @@ def _clip_and_renorm(weights: pd.Series, bounds: list[tuple]) -> pd.Series:
                 weights[t] = max_bounds[t]
                 locked.add(t)
             elif abs(weights[t] - max_bounds[t]) < 1e-9:
-                # Already exactly at cap — lock so we don't push it over
                 locked.add(t)
 
         if excess < 1e-9:
-            break  # all within bounds, converged
+            break
 
-        # 2. Find targets that still have room
+        # Only redistribute to assets that aren't capped and aren't at min-only floors
         eligible = [t for t in tickers if t not in locked]
         if not eligible:
-            break  # nowhere left to put excess — constraints unsatisfiable
+            break
 
-        # Prefer non-zero assets first (proportional), fall back to zeros (equal)
         eligible_nonzero = [t for t in eligible if weights[t] > 1e-9]
         if eligible_nonzero:
             total_pool = sum(weights[t] for t in eligible_nonzero)
@@ -136,12 +157,12 @@ def _clip_and_renorm(weights: pd.Series, bounds: list[tuple]) -> pd.Series:
             for t in eligible:
                 weights[t] += per_asset
 
-    # Final safety net: hard-cap anything still over (rare numerical edge case)
+    # Step 3: Final safety — hard-cap any remaining max violations
     for t in tickers:
         if weights[t] > max_bounds[t]:
             weights[t] = max_bounds[t]
 
-    # Renormalize by adding deficit only to assets with remaining room
+    # Step 4: Fill deficit using assets with remaining room (but never below min)
     deficit = 1.0 - float(weights.sum())
     if abs(deficit) > 1e-6:
         room = [(t, max_bounds[t] - weights[t]) for t in tickers if max_bounds[t] - weights[t] > 1e-9]
@@ -402,17 +423,21 @@ def optimize(
     bounds = _apply_regime_bounds(tickers, bounds, regime)
     bounds = _apply_sentiment_bounds(tickers, bounds, sentiment_modifiers)
 
+    # Build a ticker-keyed bounds dict — safe for any Series ordering
+    bounds_by_ticker = {tickers[i]: bounds[i] for i in range(n)}
+
     if strategy == "MAX_SHARPE":
+        # MAX_SHARPE uses the positional list with the original ticker order
         raw = _max_sharpe(returns, bounds)
         weights = pd.Series(raw, index=tickers)
 
     elif strategy == "HRP":
         weights = _hrp(returns)
-        weights = _clip_and_renorm(weights, bounds)
+        weights = _clip_and_renorm(weights, bounds_by_ticker)
 
     elif strategy == "HRP_MOMENTUM":
         weights = _hrp_momentum(returns)
-        weights = _clip_and_renorm(weights, bounds)
+        weights = _clip_and_renorm(weights, bounds_by_ticker)
 
     else:
         raise ValueError(f"Unknown strategy: {strategy!r}")

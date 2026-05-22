@@ -7,7 +7,9 @@
       "Bash(git pull *)",
       "Bash(git stash *)",
       "Bash(git add *)",
-      "Bash(git commit *)"
+      "Bash(git commit *)",
+      "Bash(grep -n \"0.35\" *.py)",
+      "Bash(grep -n \"0.15\" *.py)"
     ]
   }
 }

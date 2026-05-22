@@ -20,7 +20,7 @@ import pandas as pd
 import seaborn as sns
 import yfinance as yf
 
-from config import ASSETS, BACKTEST_RESULTS, QUARTERLY_BACKTEST, RISK_FREE_RATE
+from config import ASSETS, BACKTEST_RESULTS, DRAWDOWN_CIRCUIT_BREAKER, QUARTERLY_BACKTEST, RISK_FREE_RATE
 from regime import CHOPPY, RISK_OFF, RISK_ON, _majority_vote, _trend_signal, _vol_signal, _flight_signal
 
 warnings.filterwarnings("ignore")
@@ -127,9 +127,9 @@ def _simulate(prices: pd.DataFrame, strategy: str) -> pd.Series:
         prev_val = equity.iloc[i - 1]
         new_val = prev_val * (1.0 + day_ret)
 
-        # Drawdown circuit breaker
+        # Drawdown circuit breaker — use config value (was hardcoded)
         portfolio_ath = max(portfolio_ath, new_val)
-        if (new_val / portfolio_ath - 1) < -0.15:
+        if (new_val / portfolio_ath - 1) < -DRAWDOWN_CIRCUIT_BREAKER:
             new_val = prev_val  # freeze portfolio (no trading)
 
         equity.iloc[i] = new_val
