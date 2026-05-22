@@ -74,10 +74,46 @@ def _apply_sentiment_bounds(
 
 
 def _clip_and_renorm(weights: pd.Series, bounds: list[tuple]) -> pd.Series:
+    """Enforce max bounds, redistribute excess to non-capped assets, allow zeros.
+
+    Iterative — handles the case where capping one asset would push another over.
+    Falls back to spreading across zero-weight assets if no proportional target exists.
+    """
     tickers = weights.index.tolist()
-    for i, ticker in enumerate(tickers):
-        lo, hi = bounds[i]
-        weights[ticker] = np.clip(weights[ticker], lo, hi)
+    max_bounds = {tickers[i]: bounds[i][1] for i in range(len(tickers))}
+
+    total = weights.sum()
+    if total > 0:
+        weights = weights / total
+
+    for _ in range(30):
+        excess = 0.0
+        capped: set[str] = set()
+        for t in tickers:
+            if weights[t] > max_bounds[t] + 1e-9:
+                excess += weights[t] - max_bounds[t]
+                weights[t] = max_bounds[t]
+                capped.add(t)
+
+        if excess < 1e-9:
+            break  # converged — no more violations
+
+        # First try: spread excess proportionally to non-capped, non-zero assets
+        uncapped_nonzero = [t for t in tickers if t not in capped and weights[t] > 1e-9]
+        if uncapped_nonzero:
+            total_uncapped = sum(weights[t] for t in uncapped_nonzero)
+            for t in uncapped_nonzero:
+                weights[t] += excess * (weights[t] / total_uncapped)
+        else:
+            # Fallback: equal-weight excess across any uncapped asset (including zeros)
+            # This unwinds the momentum filter as a last resort to satisfy constraints.
+            uncapped_any = [t for t in tickers if t not in capped]
+            if not uncapped_any:
+                break
+            per_asset = excess / len(uncapped_any)
+            for t in uncapped_any:
+                weights[t] += per_asset
+
     total = weights.sum()
     if total > 0:
         weights = weights / total
