@@ -56,17 +56,29 @@ ASSETS = [
 ]
 
 WATCHLIST = [
-    "NVDA",  # AI/chips bellwether
-    "RGTI",  # Quantum computing
-    "IONQ",  # Quantum computing
-    "QBTS",  # D-Wave quantum
-    "PLTR",  # AI/defense data
-    "TSLA",  # High volatility momentum
-    "MSFT",  # Large cap quality
-    "AMZN",  # E-commerce/cloud
-    "META",  # Social/AI
-    "SMCI",  # AI server infrastructure
+    # AI / Tech
+    "NVDA", "MSFT", "AMZN", "META", "GOOGL", "AAPL", "SMCI",
+    # Quantum / Emerging
+    "RGTI", "IONQ", "QBTS", "PLTR",
+    # EV / Auto
+    "TSLA", "RIVN", "LCID",
+    # Crypto-adjacent
+    "COIN", "MSTR", "RIOT",
+    # Healthcare / Biotech
+    "LLY", "NVO",
+    # Energy
+    "XOM", "CVX",
+    # Defense
+    "LMT", "RTX",
+    # High beta / meme
+    "GME", "AMC",
 ]
+
+# Dynamic trending stocks discovery (via Claude web search)
+# Each morning Claude finds 10-15 stocks making big news/moves and adds them
+# to the day's scan on top of the static WATCHLIST above.
+TRENDING_DISCOVERY_ENABLED = True
+TRENDING_MAX_PICKS = 15
 
 # ── Log paths ────────────────────────────────────────────────────────────────
 DAILY_LOG = BASE_DIR / "daily_log.csv"

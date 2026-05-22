@@ -12,7 +12,7 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-from config import ASSETS, DAILY_LOG
+from config import ASSETS, DAILY_LOG, TRENDING_DISCOVERY_ENABLED, WATCHLIST
 from data import fetch_prices, get_returns
 from optimizer import optimize, select_strategy
 from regime import detect_regime
@@ -54,14 +54,26 @@ def main() -> None:
     returns = get_returns(prices)
     asset_returns = returns[[c for c in ASSETS if c in returns.columns]]
 
-    # ── 3. Sentiment + watchlist in parallel ───────────────────────────────────
+    # ── 3a. Discover trending stocks for today (Claude web search) ─────────────
+    extra_tickers: list[str] = []
+    if TRENDING_DISCOVERY_ENABLED:
+        from trending import discover_trending
+        trending = discover_trending()
+        extra_tickers = [t["ticker"] for t in trending]
+
+    # Combine static watchlist + today's trending stocks, deduped
+    full_watchlist = list(dict.fromkeys(WATCHLIST + extra_tickers))
+    logger.info("Total watchlist for today: %d stocks (%d static + %d trending)",
+                len(full_watchlist), len(WATCHLIST), len(extra_tickers))
+
+    # ── 3b. Sentiment + watchlist in parallel ─────────────────────────────────
     logger.info("Starting sentiment analysis and watchlist scan (parallel)…")
     from sentiment import run_sentiment_analysis
     from watchlist import scan_watchlist
 
     with concurrent.futures.ThreadPoolExecutor(max_workers=2) as pool:
         sentiment_future = pool.submit(run_sentiment_analysis, [a for a in ASSETS if a in prices.columns])
-        watchlist_future = pool.submit(scan_watchlist)
+        watchlist_future = pool.submit(scan_watchlist, full_watchlist)
         sentiment_results = sentiment_future.result()
         watchlist_data = watchlist_future.result()   # full scan rows for alpha sleeve
 
