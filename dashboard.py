@@ -124,7 +124,7 @@ if latest and "final_weights" in latest and latest["final_weights"]:
             textinfo="label+percent",
         ))
         fig_donut.update_layout(height=350, showlegend=False, margin=dict(t=20, b=20))
-        st.plotly_chart(fig_donut, use_container_width=True)
+        st.plotly_chart(fig_donut)
 
         # Weight table
         rows = []
@@ -136,7 +136,7 @@ if latest and "final_weights" in latest and latest["final_weights"]:
                     sent_score = f"{float(s.iloc[0]['score']):.2f}"
             rows.append({"Asset": ticker, "Sentiment": sent_score,
                          "Target %": f"{w:.1%}", "Drift": "—", "$Value": "—"})
-        st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
+        st.dataframe(pd.DataFrame(rows), hide_index=True)
     except Exception:
         st.info("Weight data not yet available.")
 else:
@@ -170,7 +170,7 @@ if not wl_df.empty:
     styled = display.style.apply(_color_row, axis=1).format({
         "price": "${:.2f}", "today_pct": "{:.1%}", "mom_5d": "{:.1%}", "sentiment_score": "{:.2f}",
     })
-    st.dataframe(styled, use_container_width=True, hide_index=True)
+    st.dataframe(styled, hide_index=True)
 
     if not alerts_df.empty:
         st.warning(f"⚠️ {len(alerts_df)} active alerts today")
@@ -211,7 +211,7 @@ if not daily_df.empty and "portfolio_value" in daily_df.columns:
     st.caption(f"Portfolio CAGR ≈ {cagr:.1%} since first run")
     fig_eq.update_layout(height=400, xaxis_title="Date", yaxis_title="Growth of $100",
                           legend=dict(orientation="h", y=1.02))
-    st.plotly_chart(fig_eq, use_container_width=True)
+    st.plotly_chart(fig_eq)
 else:
     st.info("No equity history yet.")
 
@@ -241,7 +241,7 @@ if not qdf.empty:
             xaxis_title="Quarter", yaxis_title="Return (%)",
             legend=dict(orientation="h", y=1.02),
         )
-        st.plotly_chart(fig_q, use_container_width=True)
+        st.plotly_chart(fig_q)
 else:
     st.info("Run backtest.py to populate quarterly data.")
 
@@ -279,7 +279,7 @@ if not qdf.empty and not regime_df.empty:
     pivot = df_cond.groupby(["Regime", "Strategy"])["Avg Return"].mean().unstack()
     fig_heat = px.imshow(pivot, text_auto=".1f", color_continuous_scale="RdYlGn",
                           color_continuous_midpoint=0, title="Avg Quarterly Return by Regime (%)")
-    st.plotly_chart(fig_heat, use_container_width=True)
+    st.plotly_chart(fig_heat)
 else:
     st.info("Backtest and regime data needed for this section.")
 
@@ -343,7 +343,7 @@ with st.spinner("Generating frontier…"):
         fig_ef.update_layout(height=450, xaxis_title="Annual Volatility",
                               yaxis_title="Expected Annual Return",
                               xaxis_tickformat=".0%", yaxis_tickformat=".0%")
-        st.plotly_chart(fig_ef, use_container_width=True)
+        st.plotly_chart(fig_ef)
     except Exception as exc:
         st.warning(f"Efficient frontier unavailable: {exc}")
 
@@ -365,7 +365,7 @@ if not daily_df.empty:
             fill="tozeroy", line=dict(color="#4C72B0"), name="Sharpe",
         ))
         fig_sh.update_layout(height=300, xaxis_title="Date", yaxis_title="Sharpe Ratio")
-        st.plotly_chart(fig_sh, use_container_width=True)
+        st.plotly_chart(fig_sh)
 
     st.dataframe(
         recent[["date", "strategy", "regime", "portfolio_value", "sharpe", "orders_placed"]].tail(30),
