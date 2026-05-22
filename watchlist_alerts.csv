@@ -1,0 +1,4 @@
+timestamp,ticker,price,today_pct,mom_5d,sentiment_score,reason
+2026-05-22T16:10:19.510102,RGTI,27.26,0.2368,0.5272,0.85,single-day move +23.7%; sentiment score +0.85; 5d momentum +52.7%
+2026-05-22T16:10:19.510102,IONQ,65.19,0.1069,0.2548,0.85,single-day move +10.7%; sentiment score +0.85; 5d momentum +25.5%
+2026-05-22T16:10:19.510102,QBTS,30.99,0.204,0.5229,0.65,single-day move +20.4%; 5d momentum +52.3%

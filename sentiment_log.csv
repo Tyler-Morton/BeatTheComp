@@ -1,0 +1,11 @@
+timestamp,ticker,score,confidence,summary
+2026-05-22T16:12:54.008333,BITO,-0.25,0.65,Bitcoin ETFs faced significant outflows with underlying BTC down modestly; macro headwinds and technical weakness persist amid geopolitical uncertainty.
+2026-05-22T16:12:54.008333,VEA,0.15,0.45,VEA trading near 52-week highs with mixed technical signals; strong YTD performance but recent momentum indicators suggest potential weakness.
+2026-05-22T16:12:54.008333,VGT,0.65,0.72,"VGT up 1.4% today, showing strong YTD gains of 20.2% as tech sector continues bullish momentum driven by AI themes, though concentration risk in mega-cap holdings remains."
+2026-05-22T16:12:54.008333,AVUV,0.65,0.72,AVUV up 1.78% in the last 24 hours with positive momentum in small-cap value rotation; recent YTD gains of 18.10% supported by Fed rate cuts and value-over-growth tailwinds.
+2026-05-22T16:12:54.008333,QQQ,0.35,0.72,"QQQ advanced on May 22 as tech stocks benefited from easing Treasury yields and U.S.-Iran diplomatic progress, though semiconductor sentiment remains mixed amid geopolitical uncertainty."
+2026-05-22T16:12:54.008333,SHV,0.0,0.0,parse error
+2026-05-22T16:12:54.008333,IWM,0.3,0.55,IWM (Russell 2000) trading near key pivot points with modest 24-hour gains; mixed sentiment amid small-cap outperformance potential.
+2026-05-22T16:12:54.008333,GLD,-0.25,0.65,"<cite index=""10-4"">Gold fell toward $4,500 an ounce on Thursday as hopes for a US-Iran peace deal faded following reports that Iran's Supreme Leader issued a directive ordering uranium to remain on Iranian soil</cite>."
+2026-05-22T16:12:54.008333,XLC,0.15,0.65,"XLC down slightly in last 24 hours; mixed signals from core holdings Meta and Alphabet, with Alphabet outperforming on AI execution but Meta facing investor skepticism over massive capex increase."
+2026-05-22T16:12:54.008333,TLT,-0.65,0.75,"TLT faces significant headwinds from soaring long-term Treasury yields driven by inflation concerns and geopolitical risks, with yields hitting 19-year highs before moderating slightly on Iran peace deal hopes."
