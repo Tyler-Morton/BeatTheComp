@@ -21,7 +21,8 @@ from config import (
 
 logger = logging.getLogger(__name__)
 
-_EQUITY_ETFS = {"QQQ", "AVUV", "VGT", "IWM", "BITO", "VEA", "XLC"}
+_LEVERAGED_ETFS = {"TQQQ", "UPRO", "SOXL", "TECL"}    # 3x leveraged growth
+_EQUITY_ETFS = {"QQQ", "AVUV", "VGT", "IWM", "BITO", "VEA", "XLC", "MTUM"} | _LEVERAGED_ETFS
 
 
 # ── Bound helpers ──────────────────────────────────────────────────────────────
@@ -33,38 +34,42 @@ def _base_bounds(n: int) -> list[tuple[float, float]]:
 def _apply_regime_bounds(
     tickers: list[str], bounds: list[tuple], regime: str
 ) -> list[tuple]:
-    """Apply regime-specific weight caps.
+    """Apply regime-specific weight caps. AGGRESSIVE PAPER TRADING CONFIG.
 
-    RISK_ON:  growth-tilted. SHV capped at 5%, TLT at 10% so the bot can't
-              hide in cash during bull markets. Equities get room to run.
-    CHOPPY:   balanced. Force some defensive minimums but cap equity tilt.
-    RISK_OFF: defensive. Force big SHV/TLT minimums, cap equities tightly.
+    RISK_ON:  no defense. SHV/TLT effectively zero. Leveraged ETFs unleashed.
+    CHOPPY:   moderate. Cap leveraged at 10%, force some GLD/TLT for stability.
+    RISK_OFF: pure defense. Kill leveraged ETFs, force SHV ≥ 30%, TLT ≥ 20%.
     """
     result = list(bounds)
     for i, ticker in enumerate(tickers):
         lo, hi = result[i]
         if regime == "RISK_ON":
-            # Block the bot from being lazy and hiding in cash/bonds
+            # Defense killed — bot must commit to growth
             if ticker == "SHV":
-                lo, hi = 0.0, 0.05
+                lo, hi = 0.0, 0.01
             elif ticker == "TLT":
-                lo, hi = 0.0, 0.10
-            # Equity ETFs allowed up to MAX_SINGLE_WEIGHT (50%)
+                lo, hi = 0.0, 0.01
+            elif ticker == "GLD":
+                lo, hi = 0.0, 0.05
+            # Equity ETFs (incl. leveraged) allowed up to MAX_SINGLE_WEIGHT (70%)
         elif regime == "CHOPPY":
-            if ticker == "GLD":
+            if ticker in _LEVERAGED_ETFS:
+                hi = min(hi, 0.10)         # leveraged ETFs dangerous in chop
+            elif ticker == "GLD":
                 lo = max(lo, 0.10)
             elif ticker == "TLT":
                 lo = max(lo, 0.10)
             elif ticker in _EQUITY_ETFS:
                 hi = min(hi, 0.30)
         elif regime == "RISK_OFF":
-            if ticker == "SHV":
+            if ticker in _LEVERAGED_ETFS:
+                hi = min(hi, 0.02)         # leveraged ETFs DEATH in crashes
+            elif ticker == "SHV":
                 lo = max(lo, 0.30)
             elif ticker == "TLT":
                 lo = max(lo, 0.20)
             elif ticker in _EQUITY_ETFS:
-                hi = min(hi, 0.15)
-        # Final bounds — allow lo to be 0 in RISK_ON for SHV/TLT
+                hi = min(hi, 0.10)
         result[i] = (max(lo, 0.0), min(hi, 1.0))
     return result
 
@@ -278,18 +283,18 @@ def _hrp_momentum(returns: pd.DataFrame) -> pd.Series:
             # No live assets — SHV absorbs everything (override cap)
             weights["SHV"] += remainder
 
-    # Relative momentum: +20% bonus to top 3, take from bottom 3
+    # Relative momentum: +60% bonus to top 3, take 40% from bottom 3
+    # Bigger tilt = leveraged ETFs (TQQQ etc) get proper allocation when winning
     live = weights[weights > 0].index.tolist()
     if len(live) >= 6:
         ranked = cum_ret.reindex(live).sort_values(ascending=False)
         top3 = ranked.index[:3].tolist()
         bot3 = ranked.index[-3:].tolist()
         for t in top3:
-            weights[t] *= 1.20
+            weights[t] *= 1.60                # was 1.20 — much harder lean into winners
         for t in bot3:
-            reduction = weights[t] * 0.20
+            reduction = weights[t] * 0.40     # was 0.20 — bigger trim of losers
             weights[t] -= reduction
-            # redistribute evenly to top 3
             for tt in top3:
                 weights[tt] += reduction / 3
 
@@ -301,7 +306,7 @@ def _hrp_momentum(returns: pd.DataFrame) -> pd.Series:
 
 ADAPTIVE_LOOKBACK_DAYS = 60       # window for measuring recent strategy performance
 ADAPTIVE_OVERRIDE_MARGIN = 0.15   # default: best must beat baseline by 15% Sharpe
-ADAPTIVE_OVERRIDE_MARGIN_RISK_ON = 0.30   # tougher in bull markets — favor momentum
+ADAPTIVE_OVERRIDE_MARGIN_RISK_ON = 1.00   # nearly impossible to override in bull — HRP_MOMENTUM locked in
 
 
 def _score_strategy_recent(
