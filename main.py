@@ -71,8 +71,8 @@ def main() -> None:
     tlt_prices = prices.get("TLT", None)
     regime = detect_regime(spy_prices, tlt_prices)
 
-    # ── 5. Auto-select strategy, then optimize ────────────────────────────────
-    strategy = select_strategy(regime)
+    # ── 5. Auto-select strategy (regime + adaptive performance), then optimize ─
+    strategy = select_strategy(regime, returns=asset_returns)
     logger.info("Running optimizer: %s (regime=%s)…", strategy, regime)
     result = optimize(
         strategy=strategy,

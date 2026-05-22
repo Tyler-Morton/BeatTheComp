@@ -209,17 +209,88 @@ def _hrp_momentum(returns: pd.DataFrame) -> pd.Series:
 
 # ── Strategy selector ─────────────────────────────────────────────────────────
 
-def select_strategy(regime: str) -> str:
-    """Return the best strategy for the current market regime.
+ADAPTIVE_LOOKBACK_DAYS = 60       # window for measuring recent strategy performance
+ADAPTIVE_OVERRIDE_MARGIN = 0.15   # require best strategy to beat baseline by 15% Sharpe
 
-    Uses STRATEGY_BY_REGIME mapping when AUTO_SELECT_STRATEGY is True,
-    otherwise returns ACTIVE_STRATEGY (manual override).
+
+def _score_strategy_recent(
+    strategy_name: str,
+    returns: pd.DataFrame,
+    regime: str,
+    lookback: int = ADAPTIVE_LOOKBACK_DAYS,
+) -> float:
+    """Simulate a strategy on out-of-sample recent data and return its Sharpe.
+
+    Uses returns BEFORE the lookback period to compute weights (avoids look-ahead),
+    then applies those weights to the most recent `lookback` days to score actual
+    realized performance.
+    """
+    if len(returns) < lookback + 60:
+        return 0.0
+    train = returns.iloc[:-lookback]
+    test = returns.tail(lookback)
+    try:
+        # Run strategy on training data (no sentiment — historical doesn't have it)
+        result = optimize(strategy=strategy_name, returns=train, regime=regime)
+        weights = result["weights"]
+        # Apply weights to test period
+        cols = [c for c in test.columns if c in weights]
+        if not cols:
+            return 0.0
+        w = np.array([weights[c] for c in cols])
+        port_returns = (test[cols].values @ w)
+        if port_returns.std() < 1e-9:
+            return 0.0
+        sharpe = (port_returns.mean() - RISK_FREE_RATE / 252) / port_returns.std() * np.sqrt(252)
+        return float(sharpe)
+    except Exception as exc:
+        logger.warning("Recent score failed for %s: %s", strategy_name, exc)
+        return 0.0
+
+
+def select_strategy(regime: str, returns: pd.DataFrame | None = None) -> str:
+    """Return the best strategy for current conditions.
+
+    Logic:
+      1. Start with regime-based mapping (STRATEGY_BY_REGIME) as baseline.
+      2. If returns data is available and AUTO_SELECT_STRATEGY is on, score all
+         three strategies on the last 60 days of actual data.
+      3. Override the regime choice ONLY if another strategy beats the baseline
+         by a significant margin (15% better Sharpe) — prevents chasing noise.
     """
     if not AUTO_SELECT_STRATEGY:
         return ACTIVE_STRATEGY
-    chosen = STRATEGY_BY_REGIME.get(regime, ACTIVE_STRATEGY)
-    logger.info("Strategy auto-selected: %s (regime=%s)", chosen, regime)
-    return chosen
+
+    baseline = STRATEGY_BY_REGIME.get(regime, ACTIVE_STRATEGY)
+
+    # Without enough data, fall back to pure regime mapping
+    if returns is None or len(returns) < ADAPTIVE_LOOKBACK_DAYS + 60:
+        logger.info("Strategy: %s (regime=%s, no adaptive override — insufficient history)", baseline, regime)
+        return baseline
+
+    # Score every strategy on actual recent performance
+    scores: dict[str, float] = {}
+    for strat in ("MAX_SHARPE", "HRP", "HRP_MOMENTUM"):
+        scores[strat] = _score_strategy_recent(strat, returns, regime)
+
+    baseline_score = scores.get(baseline, 0.0)
+    best_strat = max(scores, key=scores.get)
+    best_score = scores[best_strat]
+
+    log_scores = ", ".join(f"{k}={v:.2f}" for k, v in scores.items())
+    logger.info("Recent Sharpe by strategy: %s", log_scores)
+
+    # Override baseline only if the winner clearly beats it
+    if best_strat != baseline and best_score > baseline_score * (1.0 + ADAPTIVE_OVERRIDE_MARGIN):
+        logger.info(
+            "ADAPTIVE OVERRIDE: %s (Sharpe %.2f) beats regime pick %s (Sharpe %.2f) by %.0f%%",
+            best_strat, best_score, baseline, baseline_score,
+            (best_score / baseline_score - 1) * 100 if baseline_score > 0 else 0,
+        )
+        return best_strat
+
+    logger.info("Strategy: %s (regime=%s, baseline kept — no clear winner)", baseline, regime)
+    return baseline
 
 
 # ── Public API ─────────────────────────────────────────────────────────────────
