@@ -9,7 +9,9 @@
       "Bash(git add *)",
       "Bash(git commit *)",
       "Bash(grep -n \"0.35\" *.py)",
-      "Bash(grep -n \"0.15\" *.py)"
+      "Bash(grep -n \"0.15\" *.py)",
+      "Bash(python3 test_week_full.py)",
+      "Bash(python3 test_ytd_2026.py)"
     ]
   }
 }

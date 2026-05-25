@@ -36,10 +36,34 @@ def _log_daily(row: dict) -> None:
         w.writerow(row)
 
 
+def _already_ran_today() -> bool:
+    """Check daily_log.csv — if today's date is already there with orders or notes,
+    we've already run successfully today and shouldn't re-run."""
+    path = Path(DAILY_LOG)
+    if not path.exists():
+        return False
+    try:
+        import pandas as pd
+        df = pd.read_csv(path)
+        if df.empty: return False
+        today_str = str(datetime.today().date())
+        # Match either 'YYYY-MM-DD' or 'YYYY-MM-DD 00:00:00' formats
+        recent = df.iloc[-1]
+        last_date = str(recent.get("date", ""))[:10]
+        return last_date == today_str
+    except Exception:
+        return False
+
+
 def main() -> None:
     logger.info("═" * 60)
     logger.info("Portfolio Bot — %s", datetime.now().strftime("%Y-%m-%d %H:%M"))
     logger.info("═" * 60)
+
+    # ── 0. Duplicate-run guard (multiple cron schedules per day) ──────────────
+    if _already_ran_today():
+        logger.info("Already ran today — exiting (duplicate cron firing).")
+        sys.exit(0)
 
     # ── 1. Market open check ───────────────────────────────────────────────────
     from broker import is_market_open
