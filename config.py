@@ -70,29 +70,21 @@ ASSETS = [
 ]
 
 WATCHLIST = [
-    # AI / Tech
-    "NVDA", "MSFT", "AMZN", "META", "GOOGL", "AAPL", "SMCI",
-    # Quantum / Emerging
-    "RGTI", "IONQ", "QBTS", "PLTR",
-    # EV / Auto
-    "TSLA", "RIVN", "LCID",
-    # Crypto-adjacent
-    "COIN", "MSTR", "RIOT",
-    # Healthcare / Biotech
-    "LLY", "NVO",
-    # Energy
-    "XOM", "CVX",
-    # Defense
-    "LMT", "RTX",
-    # High beta / meme
-    "GME", "AMC",
+    # Tiny anchor list — just the names you ALWAYS want scanned regardless of news.
+    # Everything else comes from dynamic trending discovery (changes daily).
+    "NVDA",   # AI bellwether — relevant every day
+    "TSLA",   # high-beta momentum proxy
+    "AAPL",   # mega-cap proxy
+    "PLTR",   # AI/defense momentum
+    "COIN",   # crypto sentiment proxy
 ]
 
 # Dynamic trending stocks discovery (via Claude web search)
-# Each morning Claude finds 10-15 stocks making big news/moves and adds them
-# to the day's scan on top of the static WATCHLIST above.
+# Most of the bot's stock universe is now DISCOVERED daily by Claude, not hardcoded.
+# This means the watchlist is ~30 fresh stocks every morning based on what's
+# actually being talked about, surging, or breaking news.
 TRENDING_DISCOVERY_ENABLED = True
-TRENDING_MAX_PICKS = 15
+TRENDING_MAX_PICKS = 30          # was 15 — find more stocks daily
 
 # ── Log paths ────────────────────────────────────────────────────────────────
 DAILY_LOG = BASE_DIR / "daily_log.csv"
