@@ -5,3 +5,8 @@ timestamp,ticker,price,today_pct,mom_5d,sentiment_score,reason
 2026-05-22T16:32:58.966154,RGTI,27.59,0.2518,0.5457,0.85,single-day move +25.2%; sentiment score +0.85; 5d momentum +54.6%
 2026-05-22T16:32:58.966154,IONQ,65.36,0.1099,0.2581,0.72,single-day move +11.0%; 5d momentum +25.8%
 2026-05-22T16:32:58.966154,QBTS,31.41,0.2201,0.5432,0.65,single-day move +22.0%; 5d momentum +54.3%
+2026-05-26T16:57:39.053882,SMCI,37.56,0.0558,0.2177,-0.55,5d momentum +21.8%
+2026-05-26T16:57:39.053882,RGTI,25.17,-0.0471,0.5147,0.75,sentiment score +0.75; 5d momentum +51.5%
+2026-05-26T16:57:39.053882,IONQ,63.67,0.0005,0.2912,0.15,5d momentum +29.1%
+2026-05-26T16:57:39.053882,QBTS,27.71,-0.0575,0.4538,0.75,sentiment score +0.75; 5d momentum +45.4%
+2026-05-26T16:57:39.053882,LLY,1077.42,0.0117,0.0904,0.75,sentiment score +0.75
