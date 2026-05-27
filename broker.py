@@ -99,36 +99,75 @@ def rebalance(target_weights: dict[str, float]) -> list[dict]:
         except Exception as exc:
             logger.warning("Could not fetch positions: %s", exc)
 
-        # Sell first, then buy (frees up cash)
+        # Compute diffs once
         diffs = {
             sym: target_dollars.get(sym, 0.0) - current_dollars.get(sym, 0.0)
             for sym in set(target_dollars) | set(current_dollars)
         }
-        sorted_syms = sorted(diffs, key=lambda s: diffs[s])   # sells first
 
-        for sym in sorted_syms:
+        # ── PHASE 1: Submit ALL sell orders first ────────────────────────────
+        sell_syms = [s for s, d in diffs.items() if d < -MIN_ORDER_NOTIONAL]
+        for sym in sell_syms:
             diff = diffs[sym]
-            if abs(diff) < MIN_ORDER_NOTIONAL:
-                continue
-            side = OrderSide.BUY if diff > 0 else OrderSide.SELL
             try:
+                # Cap notional at 99.5% of current value to avoid float precision
+                # "insufficient qty available" errors on full-position sells
+                current_val = current_dollars.get(sym, 0)
+                notional = min(abs(diff), current_val * 0.995)
+                if notional < MIN_ORDER_NOTIONAL: continue
                 req = MarketOrderRequest(
-                    symbol=sym,
-                    notional=round(abs(diff), 2),
-                    side=side,
-                    time_in_force=TimeInForce.DAY,
+                    symbol=sym, notional=round(notional, 2),
+                    side=OrderSide.SELL, time_in_force=TimeInForce.DAY,
                 )
                 order = tc.submit_order(req)
-                rec = {
-                    "symbol": sym,
-                    "side": side.value,
-                    "notional": round(abs(diff), 2),
-                    "order_id": str(order.id),
-                }
-                orders_placed.append(rec)
-                logger.info("Order placed: %s %s $%.2f", side.value.upper(), sym, abs(diff))
+                orders_placed.append({"symbol": sym, "side": "sell",
+                                       "notional": round(notional, 2),
+                                       "order_id": str(order.id)})
+                logger.info("Order placed: SELL %s $%.2f", sym, notional)
             except Exception as exc:
-                logger.error("Order failed for %s: %s", sym, exc)
+                logger.error("Sell failed for %s: %s", sym, exc)
+
+        # ── PHASE 2: Wait for sells to settle, then submit buys ──────────────
+        # Alpaca fills market orders fast but buying_power update can lag a few sec.
+        # Poll until buying_power has increased enough OR 30 seconds elapse.
+        if sell_syms:
+            import time as _time
+            start_bp = float(tc.get_account().buying_power)
+            target_buys = sum(d for d in diffs.values() if d > MIN_ORDER_NOTIONAL)
+            for _ in range(15):  # max 15 × 2s = 30 seconds
+                _time.sleep(2)
+                bp_now = float(tc.get_account().buying_power)
+                if bp_now >= target_buys * 0.95 or bp_now > start_bp * 5:
+                    logger.info("Sells settled — buying power now $%.2f", bp_now)
+                    break
+            else:
+                logger.warning("Sells still settling after 30s — buying power $%.2f (need $%.2f)",
+                               float(tc.get_account().buying_power), target_buys)
+
+        # ── PHASE 3: Submit buy orders — sized to actual buying power ────────
+        buy_syms = [s for s, d in diffs.items() if d > MIN_ORDER_NOTIONAL]
+        buy_syms.sort(key=lambda s: -diffs[s])   # biggest buys first (priority)
+        for sym in buy_syms:
+            diff = diffs[sym]
+            try:
+                # Re-check buying power for each order to prevent cascading failures
+                bp = float(tc.get_account().buying_power)
+                if bp < MIN_ORDER_NOTIONAL:
+                    logger.warning("Out of buying power, skipping remaining buys")
+                    break
+                notional = min(abs(diff), bp * 0.98)  # 2% buffer
+                if notional < MIN_ORDER_NOTIONAL: continue
+                req = MarketOrderRequest(
+                    symbol=sym, notional=round(notional, 2),
+                    side=OrderSide.BUY, time_in_force=TimeInForce.DAY,
+                )
+                order = tc.submit_order(req)
+                orders_placed.append({"symbol": sym, "side": "buy",
+                                       "notional": round(notional, 2),
+                                       "order_id": str(order.id)})
+                logger.info("Order placed: BUY %s $%.2f", sym, notional)
+            except Exception as exc:
+                logger.error("Buy failed for %s: %s", sym, exc)
 
     except Exception as exc:
         logger.error("Rebalance error: %s", exc)
