@@ -49,19 +49,53 @@ def load_price_cache(max_age_hours: float = 6.0) -> pd.DataFrame | None:
         return None
 
 
-def _batch_download(
-    tickers: list[str],
-    start: str,
-    end: str,
-    retries: int = 3,
-) -> pd.DataFrame:
-    """Download all tickers in one request — far less likely to hit rate limits.
-    Falls back to one-by-one with delays if batch fails.
+def _alpaca_download(tickers: list[str], start: str, end: str) -> pd.DataFrame:
+    """Fetch daily close prices from Alpaca's IEX feed.
+    Free with paper account, no rate limits, fast batch download.
     """
-    # Per-ticker download with browser session — most reliable approach
-    # (batch yf.download() doesn't accept session= so it gets rate-limited)
+    import os
+    from alpaca.data.historical import StockHistoricalDataClient
+    from alpaca.data.requests import StockBarsRequest
+    from alpaca.data.timeframe import TimeFrame
+    from alpaca.data.enums import DataFeed
+
+    client = StockHistoricalDataClient(
+        api_key=os.getenv("ALPACA_API_KEY"),
+        secret_key=os.getenv("ALPACA_SECRET_KEY"),
+    )
+
+    req = StockBarsRequest(
+        symbol_or_symbols=list(tickers),
+        timeframe=TimeFrame.Day,
+        start=datetime.strptime(start, "%Y-%m-%d"),
+        end=datetime.strptime(end, "%Y-%m-%d") - timedelta(minutes=20),  # IEX delay buffer
+        feed=DataFeed.IEX,
+    )
+    bars = client.get_stock_bars(req).df
+    if bars.empty:
+        raise RuntimeError("Alpaca returned empty bars")
+
+    # Pivot to ticker columns with close prices
+    frames: dict[str, pd.Series] = {}
+    for t in tickers:
+        try:
+            sub = bars.xs(t, level=0)["close"].sort_index()
+            if sub.index.tz is not None:
+                sub.index = sub.index.tz_localize(None)
+            sub.index = pd.to_datetime(sub.index.date)   # date-only index
+            frames[t] = sub
+        except KeyError:
+            logger.warning("No Alpaca data for %s — skipping", t)
+    if not frames:
+        raise RuntimeError("No tickers retrievable from Alpaca")
+    return pd.DataFrame(frames).ffill().dropna(how="all")
+
+
+def _yfinance_download(
+    tickers: list[str], start: str, end: str, retries: int = 3,
+) -> pd.DataFrame:
+    """Fallback yfinance fetcher with browser session."""
     frames: list[pd.Series] = []
-    missing = []
     for ticker in tickers:
         for attempt in range(retries):
             try:
@@ -74,19 +108,23 @@ def _batch_download(
                             close.index = close.index.tz_localize(None)
                         frames.append(close.rename(ticker))
                         break
-                else:
-                    missing.append(ticker)
-                    break
             except Exception as exc:
                 wait = 2 ** attempt
-                logger.warning("Failed %s (attempt %d): %s — retrying in %ds", ticker, attempt + 1, exc, wait)
+                logger.warning("Failed %s (attempt %d): %s", ticker, attempt + 1, exc)
                 time.sleep(wait)
-
-    for t in missing:
-        logger.warning("No data for %s — skipping", t)
     if not frames:
         raise RuntimeError("No price data could be fetched for any ticker.")
     return pd.concat(frames, axis=1).ffill().dropna(how="all")
+
+
+def _batch_download(tickers: list[str], start: str, end: str, retries: int = 3) -> pd.DataFrame:
+    """Try Alpaca IEX first (free + reliable), fall back to yfinance if it fails."""
+    try:
+        logger.info("Fetching prices via Alpaca IEX (%d tickers)...", len(tickers))
+        return _alpaca_download(tickers, start, end)
+    except Exception as exc:
+        logger.warning("Alpaca fetch failed: %s — falling back to yfinance", exc)
+        return _yfinance_download(tickers, start, end, retries)
 
 
 def fetch_prices(tickers: list[str], lookback_days: int = 252) -> pd.DataFrame:
