@@ -33,7 +33,7 @@ MAX_SINGLE_WEIGHT = 0.70         # was 0.50 — concentrate hard on winners
 MIN_SINGLE_WEIGHT = 0.0          # was 0.02 — no forced minimum
 REBALANCE_DRIFT_THRESHOLD = 0.02 # was 0.05 — catch momentum shifts faster
 DRAWDOWN_CIRCUIT_BREAKER = 0.30  # was 0.20 — ride bigger swings
-MAX_PORTFOLIO_VOL = 0.65         # was 0.50 — leveraged ETFs + alpha sleeve push vol high; let it trade
+MAX_PORTFOLIO_VOL = 0.90         # was 0.65 — pure 3x leveraged ETF portfolios push vol to ~85%
 
 # ── Alpha sleeve (individual stocks) ────────────────────────────────────────
 # Carves out a small % of the portfolio for high-momentum watchlist picks.
