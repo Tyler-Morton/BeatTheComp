@@ -43,14 +43,15 @@ jobs:
           EMAIL_PASS: ${{ secrets.EMAIL_PASS }}
         run: python main.py
 
-      - name: Commit updated CSV logs
+      - name: Commit updated CSV logs + price cache
+        if: always()   # run even if pipeline failed — useful for partial state
         run: |
           git config user.name  "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add *.csv alerts.log || true
-          git commit -m "Daily log $(date -u '+%Y-%m-%d %H:%M UTC')" || exit 0
-          # Pull any new commits with rebase before pushing — prevents race conditions
-          # if user pushed code while the bot was mid-run.
+          # Include parquet cache so future rate-limited runs can fall back to it
+          git add *.csv alerts.log prices_cache.parquet 2>/dev/null || true
+          git diff --cached --quiet && echo "Nothing to commit" && exit 0
+          git commit -m "Daily log $(date -u '+%Y-%m-%d %H:%M UTC')"
           for i in 1 2 3; do
             git pull --rebase origin main && git push && break
             echo "Push attempt $i failed, retrying in 5s..."
