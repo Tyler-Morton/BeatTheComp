@@ -10,10 +10,37 @@ import logging
 import os
 import re
 from datetime import datetime
+from pathlib import Path
 
 import anthropic
 
-from config import TRENDING_MAX_PICKS
+from config import ALERTS_LOG, TRENDING_MAX_PICKS
+
+TRENDING_RAW_LOG = Path(__file__).parent / "trending_raw.csv"
+
+
+def _log_alert(message: str) -> None:
+    """Write a loud alert that something went sideways in trending discovery."""
+    try:
+        with open(ALERTS_LOG, "a") as f:
+            f.write(f"{datetime.now().isoformat()} | TRENDING: {message}\n")
+    except Exception:
+        pass
+
+
+def _log_raw_candidates(tickers: list[str], reasons: dict[str, str]) -> None:
+    """Append every raw candidate Claude returned to a CSV — pre-filter visibility."""
+    try:
+        new_file = not TRENDING_RAW_LOG.exists()
+        with open(TRENDING_RAW_LOG, "a") as f:
+            if new_file:
+                f.write("timestamp,ticker,reason\n")
+            ts = datetime.now().isoformat()
+            for t in tickers:
+                reason = (reasons.get(t, "") or "").replace(",", ";").replace("\n", " ")
+                f.write(f"{ts},{t},{reason}\n")
+    except Exception as exc:
+        logger.warning("Could not write trending_raw.csv: %s", exc)
 
 logger = logging.getLogger(__name__)
 
@@ -92,6 +119,7 @@ def discover_trending() -> list[dict]:
     api_key = os.getenv("ANTHROPIC_API_KEY")
     if not api_key:
         logger.warning("No ANTHROPIC_API_KEY — skipping trending discovery")
+        _log_alert("No ANTHROPIC_API_KEY — discovery skipped, alpha sleeve will be empty")
         return []
 
     try:
@@ -105,8 +133,14 @@ def discover_trending() -> list[dict]:
         text = _extract_text(response.content)
         tickers, reasons = _parse_response(text)
 
+        # Always log the raw response — visibility into what Claude actually returned
+        _log_raw_candidates(tickers, reasons)
+
         if not tickers:
             logger.warning("Trending discovery returned no valid tickers")
+            _log_alert(
+                f"Discovery returned 0 valid tickers. Response head: {text[:200]!r}"
+            )
             return []
 
         result = [{"ticker": t, "reason": reasons.get(t, "trending")} for t in tickers]
@@ -117,4 +151,5 @@ def discover_trending() -> list[dict]:
 
     except Exception as exc:
         logger.warning("Trending discovery failed: %s", exc)
+        _log_alert(f"Discovery exception: {type(exc).__name__}: {exc}")
         return []
