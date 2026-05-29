@@ -63,26 +63,30 @@ COLOR = {
     "risk_off":   "#ef4444",
 }
 
-# Plotly theme
-PLOTLY_LAYOUT = dict(
+# Plotly base theme — legend handled per-chart to avoid keyword collisions
+PLOTLY_BASE = dict(
     paper_bgcolor="rgba(0,0,0,0)",
     plot_bgcolor="rgba(0,0,0,0)",
     font=dict(family="Inter, system-ui, sans-serif", color=COLOR["text"], size=12),
     margin=dict(l=10, r=10, t=10, b=10),
     xaxis=dict(gridcolor=COLOR["border"], zerolinecolor=COLOR["border"], color=COLOR["text_2"]),
     yaxis=dict(gridcolor=COLOR["border"], zerolinecolor=COLOR["border"], color=COLOR["text_2"]),
-    legend=dict(
-        bgcolor="rgba(19,24,41,0.6)",
-        bordercolor=COLOR["border"],
-        borderwidth=1,
-        font=dict(color=COLOR["text_2"], size=11),
-    ),
     hoverlabel=dict(
         bgcolor=COLOR["surface_2"],
         bordercolor=COLOR["border_2"],
         font=dict(family="Inter, system-ui, sans-serif", color=COLOR["text"]),
     ),
 )
+
+LEGEND_BASE = dict(
+    bgcolor="rgba(19,24,41,0.6)",
+    bordercolor=COLOR["border"],
+    borderwidth=1,
+    font=dict(color=COLOR["text_2"], size=11),
+)
+
+# Backward compat alias — old code uses PLOTLY_LAYOUT
+PLOTLY_LAYOUT = PLOTLY_BASE
 
 
 # ── Global CSS — Inter font + dark theme + polish ──────────────────────────────
@@ -93,6 +97,16 @@ st.markdown(f"""
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
 
 <style>
+    /* ── Motion tokens (Emil's curves — stronger than built-in CSS easings) ── */
+    :root {{
+        --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
+        --ease-in-out: cubic-bezier(0.77, 0, 0.175, 1);
+        --ease-drawer: cubic-bezier(0.32, 0.72, 0, 1);
+        --dur-1: 120ms;
+        --dur-2: 180ms;
+        --dur-3: 240ms;
+    }}
+
     /* Global font */
     html, body, [class*="css"], .stApp, .stMarkdown, .stText, button, input, textarea, select {{
         font-family: 'Inter', system-ui, -apple-system, sans-serif !important;
@@ -143,17 +157,43 @@ st.markdown(f"""
         letter-spacing: 0.02em !important;
     }}
 
-    /* Metric cards — dark surface, subtle border */
+    /* ── Metric cards: subtle hover lift + press feedback ── */
     [data-testid="stMetric"] {{
         background: {COLOR['surface']};
         border: 1px solid {COLOR['border']};
         border-radius: 12px;
         padding: 1rem 1.25rem !important;
-        transition: border-color 200ms ease, transform 200ms ease;
+        transition: border-color var(--dur-2) var(--ease-out),
+                    transform var(--dur-2) var(--ease-out),
+                    background-color var(--dur-2) var(--ease-out);
+        will-change: transform;
+        /* Stagger fade-in on first paint */
+        animation: card-in 360ms var(--ease-out) both;
     }}
-    [data-testid="stMetric"]:hover {{
-        border-color: {COLOR['border_2']};
+    /* Stagger metric cards 40ms apart — natural cascade, not all-at-once */
+    [data-testid="column"]:nth-of-type(1) [data-testid="stMetric"] {{ animation-delay: 0ms; }}
+    [data-testid="column"]:nth-of-type(2) [data-testid="stMetric"] {{ animation-delay: 40ms; }}
+    [data-testid="column"]:nth-of-type(3) [data-testid="stMetric"] {{ animation-delay: 80ms; }}
+    [data-testid="column"]:nth-of-type(4) [data-testid="stMetric"] {{ animation-delay: 120ms; }}
+
+    @keyframes card-in {{
+        from {{ opacity: 0; transform: translateY(8px) scale(0.985); }}
+        to   {{ opacity: 1; transform: translateY(0)   scale(1); }}
     }}
+
+    /* Hover only on devices that actually hover — never on touch */
+    @media (hover: hover) and (pointer: fine) {{
+        [data-testid="stMetric"]:hover {{
+            border-color: {COLOR['border_2']};
+            background: {COLOR['surface_2']};
+            transform: translateY(-1px);
+        }}
+    }}
+    [data-testid="stMetric"]:active {{
+        transform: scale(0.99);
+        transition-duration: var(--dur-1);
+    }}
+
     [data-testid="stMetricLabel"] {{
         font-size: 0.6875rem !important;
         font-weight: 500 !important;
@@ -176,7 +216,7 @@ st.markdown(f"""
         font-variant-numeric: tabular-nums !important;
     }}
 
-    /* Tabs */
+    /* ── Tabs: snappy custom curve, subtle indicator slide ── */
     .stTabs [data-baseweb="tab-list"] {{
         gap: 0.25rem;
         border-bottom: 1px solid {COLOR['border']};
@@ -188,6 +228,15 @@ st.markdown(f"""
         color: {COLOR['text_2']} !important;
         font-weight: 500 !important;
         padding: 0.5rem 1rem !important;
+        transition: color var(--dur-2) var(--ease-out),
+                    background-color var(--dur-2) var(--ease-out),
+                    border-color var(--dur-2) var(--ease-out);
+    }}
+    @media (hover: hover) and (pointer: fine) {{
+        .stTabs [data-baseweb="tab"]:hover {{
+            color: {COLOR['text']} !important;
+            background: rgba(255,255,255,0.02) !important;
+        }}
     }}
     .stTabs [data-baseweb="tab"][aria-selected="true"] {{
         color: {COLOR['primary_2']} !important;
@@ -200,9 +249,16 @@ st.markdown(f"""
         border: 1px solid {COLOR['border']};
         border-radius: 12px;
         overflow: hidden;
+        transition: border-color var(--dur-2) var(--ease-out);
+        animation: card-in 360ms var(--ease-out) 80ms both;
+    }}
+    @media (hover: hover) and (pointer: fine) {{
+        [data-testid="stDataFrame"]:hover {{
+            border-color: {COLOR['border_2']};
+        }}
     }}
 
-    /* Buttons */
+    /* ── Buttons: scale(0.97) press feedback (Emil's signature) ── */
     .stButton button {{
         background: {COLOR['primary']} !important;
         color: white !important;
@@ -210,47 +266,65 @@ st.markdown(f"""
         border-radius: 8px !important;
         font-weight: 500 !important;
         padding: 0.5rem 1rem !important;
-        transition: background-color 200ms ease, transform 100ms ease !important;
+        transition: background-color var(--dur-2) var(--ease-out),
+                    transform var(--dur-1) var(--ease-out),
+                    box-shadow var(--dur-2) var(--ease-out) !important;
+        will-change: transform;
     }}
-    .stButton button:hover {{
-        background: {COLOR['primary_2']} !important;
+    @media (hover: hover) and (pointer: fine) {{
+        .stButton button:hover {{
+            background: {COLOR['primary_2']} !important;
+            box-shadow: 0 4px 16px rgba(59, 130, 246, 0.24);
+        }}
     }}
     .stButton button:active {{
-        transform: scale(0.98);
+        transform: scale(0.97);
     }}
 
-    /* Alerts */
+    /* ── Alerts: enter from below with custom curve ── */
     [data-testid="stAlert"] {{
         border-radius: 10px !important;
         border-width: 1px !important;
         font-size: 0.875rem !important;
+        animation: alert-in 280ms var(--ease-out) both;
+    }}
+    @keyframes alert-in {{
+        from {{ opacity: 0; transform: translateY(6px) scale(0.97); }}
+        to   {{ opacity: 1; transform: translateY(0)   scale(1); }}
     }}
 
-    /* Dividers — make them subtle */
+    /* Dividers — subtle */
     hr {{
         border-color: {COLOR['border']} !important;
         margin: 1.5rem 0 !important;
         opacity: 0.6;
     }}
 
-    /* Plotly chart container */
+    /* ── Plotly chart container: gentle entrance ── */
     .js-plotly-plot {{
         background: {COLOR['surface']} !important;
         border: 1px solid {COLOR['border']};
         border-radius: 12px;
         padding: 0.75rem;
+        transition: border-color var(--dur-3) var(--ease-out);
+        animation: card-in 400ms var(--ease-out) 120ms both;
+    }}
+    @media (hover: hover) and (pointer: fine) {{
+        .js-plotly-plot:hover {{
+            border-color: {COLOR['border_2']};
+        }}
     }}
 
-    /* Section card wrapper helper */
-    .section-card {{
-        background: {COLOR['surface']};
-        border: 1px solid {COLOR['border']};
-        border-radius: 12px;
-        padding: 1.25rem;
-        margin-bottom: 1rem;
+    /* Section heading entrance (subtle) */
+    h2 {{
+        animation: heading-in 320ms var(--ease-out) both;
+    }}
+    @keyframes heading-in {{
+        from {{ opacity: 0; transform: translateY(-4px); }}
+        to   {{ opacity: 1; transform: translateY(0); }}
     }}
 
-    /* Status badge */
+    /* ── Status badge: subtle entrance + press ── */
     .status-badge {{
         display: inline-flex;
         align-items: center;
@@ -260,24 +334,69 @@ st.markdown(f"""
         font-size: 0.75rem;
         font-weight: 500;
         letter-spacing: 0.02em;
+        animation: badge-in 240ms var(--ease-out) both;
+    }}
+    @keyframes badge-in {{
+        from {{ opacity: 0; transform: scale(0.94); }}
+        to   {{ opacity: 1; transform: scale(1); }}
     }}
     .badge-success {{ background: rgba(16,185,129,0.15); color: {COLOR['success_2']}; border: 1px solid rgba(16,185,129,0.3); }}
     .badge-warning {{ background: rgba(245,158,11,0.15); color: {COLOR['accent']}; border: 1px solid rgba(245,158,11,0.3); }}
     .badge-danger  {{ background: rgba(239,68,68,0.15); color: {COLOR['danger_2']}; border: 1px solid rgba(239,68,68,0.3); }}
     .badge-info    {{ background: rgba(6,182,212,0.15); color: {COLOR['info']}; border: 1px solid rgba(6,182,212,0.3); }}
 
-    /* Reduced motion respect */
-    @media (prefers-reduced-motion: reduce) {{
-        *, *::before, *::after {{
-            animation-duration: 0.01ms !important;
-            transition-duration: 0.01ms !important;
-        }}
+    /* ── Live regime dot: gentle pulse (only on active "on" states) ── */
+    .regime-dot {{
+        width: 8px; height: 8px;
+        border-radius: 50%;
+        position: relative;
+    }}
+    .regime-dot::before {{
+        content: '';
+        position: absolute;
+        inset: -4px;
+        border-radius: 50%;
+        background: inherit;
+        opacity: 0.4;
+        animation: pulse 2400ms var(--ease-in-out) infinite;
+    }}
+    @keyframes pulse {{
+        0%, 100% {{ transform: scale(1); opacity: 0.4; }}
+        50%      {{ transform: scale(1.6); opacity: 0; }}
     }}
 
-    /* Focus rings for accessibility */
+    /* Inputs / selectboxes / checkboxes — match motion language */
+    .stSelectbox > div, .stMultiSelect > div, .stCheckbox > div {{
+        transition: border-color var(--dur-2) var(--ease-out),
+                    background-color var(--dur-2) var(--ease-out);
+    }}
+
+    /* ── Reduced motion: keep opacity, kill movement (Emil's rule) ── */
+    @media (prefers-reduced-motion: reduce) {{
+        *, *::before, *::after {{
+            animation-duration: 200ms !important;
+            animation-iteration-count: 1 !important;
+        }}
+        [data-testid="stMetric"],
+        .js-plotly-plot,
+        [data-testid="stDataFrame"],
+        h2,
+        .status-badge,
+        [data-testid="stAlert"] {{
+            animation: fade-only 200ms ease both !important;
+        }}
+        @keyframes fade-only {{ from {{ opacity: 0; }} to {{ opacity: 1; }} }}
+        .regime-dot::before {{ animation: none !important; opacity: 0 !important; }}
+        [data-testid="stMetric"]:hover,
+        [data-testid="stMetric"]:active,
+        .stButton button:active {{ transform: none !important; }}
+    }}
+
+    /* Focus rings — visible for keyboard navigation */
     button:focus-visible, [role="button"]:focus-visible, input:focus-visible {{
         outline: 2px solid {COLOR['primary']} !important;
         outline-offset: 2px !important;
+        transition: outline-offset var(--dur-1) var(--ease-out);
     }}
 
     /* Monospaced numbers in tables */
@@ -322,6 +441,20 @@ def _load_alerts() -> pd.DataFrame:
     return _load_csv(str(WATCHLIST_ALERTS), ["timestamp"])
 
 
+@st.cache_data(ttl=30)
+def _load_live() -> dict | None:
+    """Live Alpaca account snapshot (equity + positions). None if unavailable.
+
+    Cached 30s so reloading the page reflects near-real-time broker state
+    without hammering the API on every Streamlit rerun.
+    """
+    try:
+        from broker import get_live_snapshot
+        return get_live_snapshot()
+    except Exception:
+        return None
+
+
 @st.cache_data(ttl=600)
 def _load_quarterly() -> pd.DataFrame:
     p = Path(QUARTERLY_BACKTEST)
@@ -361,7 +494,8 @@ wl_df = _load_watchlist()
 alerts_df = _load_alerts()
 qdf = _load_quarterly()
 latest = _latest_row(daily_df)
-latest_regime = _latest_row(regime_df).get("regime", "—")
+latest_regime = _latest_row(regime_df).get("regime", "-")
+live = _load_live()   # live Alpaca snapshot (equity + positions), or None
 
 
 # ── HEADER ────────────────────────────────────────────────────────────────────
@@ -371,28 +505,29 @@ REGIME_META = {
     "CHOPPY":   ("Sideways", COLOR["choppy"],   "warning"),
     "RISK_OFF": ("Defensive",COLOR["risk_off"], "danger"),
 }
-regime_label, regime_color, regime_badge = REGIME_META.get(latest_regime, ("—", COLOR["text_3"], "info"))
+regime_label, regime_color, regime_badge = REGIME_META.get(latest_regime, ("-", COLOR["text_3"], "info"))
 
 col_title, col_status = st.columns([2, 1])
 with col_title:
     st.markdown(f"""
-    <div style="display:flex; align-items:center; gap:0.75rem; margin-bottom:0.25rem;">
-        <div style="width:8px; height:8px; border-radius:50%; background:{regime_color}; box-shadow: 0 0 12px {regime_color}80;"></div>
-        <h1 style="margin:0;">Portfolio Bot</h1>
+    <div style="display:flex; align-items:center; gap:0.875rem; margin-bottom:0.25rem;">
+        <div class="regime-dot" style="background:{regime_color}; box-shadow: 0 0 12px {regime_color}80;"></div>
+        <h1 style="margin:0; animation: none !important;">Portfolio Bot</h1>
     </div>
     <div style="color:{COLOR['text_3']}; font-size:0.8125rem; letter-spacing:0.02em;">
-        AI-Powered Portfolio · HRP Momentum · Paper Trading
+        Paper trading on Alpaca. HRP Momentum strategy. Aggressive growth tilt.
     </div>
     """, unsafe_allow_html=True)
 
 with col_status:
-    last_run = str(latest.get("date", "—"))[:10] if latest else "—"
-    strategy_name = str(latest.get("strategy", "—"))
+    last_run = str(latest.get("date", "-"))[:10] if latest else "-"
+    strategy_name = str(latest.get("strategy", "-"))
     st.markdown(f"""
     <div style="text-align:right; padding-top:0.25rem;">
-        <span class="status-badge badge-{regime_badge}">● {latest_regime} · {regime_label}</span>
+        <span class="status-badge badge-{regime_badge}">{latest_regime} &nbsp;{regime_label}</span>
         <div style="color:{COLOR['text_3']}; font-size:0.75rem; margin-top:0.5rem;">
-            Last run: <span style="color:{COLOR['text_2']}; font-variant-numeric:tabular-nums;">{last_run}</span> · Strategy: <span style="color:{COLOR['text_2']};">{strategy_name}</span>
+            Last run <span style="color:{COLOR['text_2']}; font-variant-numeric:tabular-nums;">{last_run}</span>
+            &nbsp;&nbsp;Strategy <span style="color:{COLOR['text_2']};">{strategy_name}</span>
         </div>
     </div>
     """, unsafe_allow_html=True)
@@ -410,8 +545,18 @@ if latest:
     exp_ret = float(latest.get("expected_return", 0))
     ann_vol = float(latest.get("annual_vol", 0))
 
-    # Compute today's change vs yesterday
-    if len(daily_df) >= 2:
+    # Prefer live Alpaca equity + intraday change; fall back to morning CSV snapshot.
+    if live and live.get("equity"):
+        port_val = float(live["equity"])
+        last_eq = float(live.get("last_equity", 0) or 0)
+        if last_eq:
+            day_change = port_val - last_eq
+            day_change_pct = port_val / last_eq - 1
+            delta_str = f"{day_change:+.2f} ({day_change_pct*100:+.2f}%)"
+        else:
+            delta_str = None
+    elif len(daily_df) >= 2:
+        # Compute today's change vs yesterday from the daily log
         prev_val = float(daily_df.iloc[-2]["portfolio_value"])
         day_change = port_val - prev_val
         day_change_pct = (port_val / prev_val - 1) if prev_val else 0
@@ -421,7 +566,8 @@ if latest:
 
     c1, c2, c3, c4 = st.columns(4)
     with c1:
-        st.metric("Portfolio Value", _format_money(port_val), delta=delta_str)
+        live_tag = " · live" if live else ""
+        st.metric("Portfolio Value" + live_tag, _format_money(port_val), delta=delta_str)
     with c2:
         st.metric("Sharpe Ratio", f"{sharpe:.2f}")
     with c3:
@@ -439,45 +585,61 @@ st.markdown("## Holdings")
 if not latest:
     st.info("No holdings data yet.")
 else:
-    weights = {k: v for k, v in _parse_weights(latest.get("final_weights", "")).items() if v > 0.001}
+    # Prefer live broker positions; fall back to the morning target weights.
+    if live and live.get("positions"):
+        weights = {sym: p["weight"] for sym, p in live["positions"].items() if p["weight"] > 0.001}
+    else:
+        weights = {k: v for k, v in _parse_weights(latest.get("final_weights", "")).items() if v > 0.001}
     notes = _clean_notes(latest.get("notes", ""))
     orders = int(latest.get("orders_placed", 0) or 0)
 
     # Status messaging
     if "breach" in notes.lower() or "fail" in notes.lower() or "spike" in notes.lower() or "scaling" in notes.lower():
-        st.markdown(f'<div class="status-badge badge-warning">⚠ Trades blocked — {notes}. Showing intended target weights.</div>', unsafe_allow_html=True)
+        st.markdown(f'<div class="status-badge badge-warning">Trades blocked: {notes}. Showing intended target weights.</div>', unsafe_allow_html=True)
     elif notes == "no_rebalance":
-        st.markdown(f'<div class="status-badge badge-info">✓ On target — no rebalance needed</div>', unsafe_allow_html=True)
+        st.markdown(f'<div class="status-badge badge-info">On target. No rebalance needed.</div>', unsafe_allow_html=True)
     elif orders > 0:
-        st.markdown(f'<div class="status-badge badge-success">✓ Rebalanced today · {orders} orders placed</div>', unsafe_allow_html=True)
+        st.markdown(f'<div class="status-badge badge-success">Rebalanced today. {orders} orders placed.</div>', unsafe_allow_html=True)
     elif notes:
-        st.markdown(f'<div class="status-badge badge-warning">⚠ {notes}</div>', unsafe_allow_html=True)
+        st.markdown(f'<div class="status-badge badge-warning">{notes}</div>', unsafe_allow_html=True)
 
     if weights:
-        port_val = float(latest.get("portfolio_value", 0))
+        port_val = float(live["equity"]) if (live and live.get("equity")) else float(latest.get("portfolio_value", 0))
+        live_pos = live.get("positions", {}) if live else {}
         sent_df = sentiment_df
 
         col_donut, col_table = st.columns([1, 1.4])
 
         with col_donut:
+            # Only show labels for slices >= 3%; aggregate tiny ones into "Other"
+            MIN_LABEL_PCT = 3.0
             sorted_weights = sorted(weights.items(), key=lambda x: -x[1])
-            labels = [t for t, _ in sorted_weights]
-            values = [v * 100 for _, v in sorted_weights]
-            palette = ["#3b82f6","#10b981","#f59e0b","#ef4444","#8b5cf6","#06b6d4","#ec4899","#84cc16","#f97316","#a855f7","#14b8a6","#facc15"]
+            major = [(t, v) for t, v in sorted_weights if v * 100 >= MIN_LABEL_PCT]
+            minor = [(t, v) for t, v in sorted_weights if v * 100 < MIN_LABEL_PCT]
+            display_pairs = major[:]
+            if minor:
+                other_total = sum(v for _, v in minor)
+                display_pairs.append((f"Other ({len(minor)})", other_total))
+
+            labels = [t for t, _ in display_pairs]
+            values = [v * 100 for _, v in display_pairs]
+            palette = ["#3b82f6","#10b981","#f59e0b","#ef4444","#8b5cf6","#06b6d4",
+                       "#ec4899","#84cc16","#f97316","#a855f7","#14b8a6","#facc15"]
 
             fig = go.Figure(go.Pie(
-                labels=labels, values=values, hole=0.62,
-                textinfo="label+percent", textposition="outside",
+                labels=labels, values=values, hole=0.62, sort=False,
+                textinfo="label+percent", textposition="inside",
+                insidetextorientation="auto",
                 marker=dict(colors=palette[:len(labels)], line=dict(color=COLOR["bg"], width=2)),
-                textfont=dict(family="Inter", size=11, color=COLOR["text_2"]),
+                textfont=dict(family="Inter", size=12, color="white"),
                 hovertemplate="<b>%{label}</b><br>%{value:.1f}%<extra></extra>",
             ))
             fig.update_layout(
-                **PLOTLY_LAYOUT,
+                **{**PLOTLY_BASE, "margin": dict(l=30, r=30, t=30, b=30)},
                 height=380,
                 showlegend=False,
                 annotations=[dict(
-                    text=f"<b style='color:{COLOR['text']}; font-size:18px'>{len(labels)}</b><br><span style='color:{COLOR['text_3']}; font-size:11px; letter-spacing:0.08em;'>POSITIONS</span>",
+                    text=f"<b style='color:{COLOR['text']}; font-size:18px'>{len(weights)}</b><br><span style='color:{COLOR['text_3']}; font-size:11px; letter-spacing:0.08em;'>POSITIONS</span>",
                     x=0.5, y=0.5, showarrow=False, font=dict(family="Inter")
                 )]
             )
@@ -490,10 +652,12 @@ else:
                 if not sent_df.empty:
                     s = sent_df[sent_df["ticker"] == ticker].tail(1)
                     if not s.empty: sent = float(s.iloc[0]["score"])
+                # Use the live market value when we have it; else derive from weight.
+                value = live_pos[ticker]["market_value"] if ticker in live_pos else w * port_val
                 rows.append({
                     "Asset": ticker,
-                    "Weight": w,
-                    "Value": w * port_val,
+                    "Weight": w * 100,   # store as percent so ProgressColumn renders correctly
+                    "Value": value,
                     "Sentiment": sent,
                 })
             df = pd.DataFrame(rows)
@@ -503,7 +667,8 @@ else:
                 column_config={
                     "Asset": st.column_config.TextColumn("Asset", width="small"),
                     "Weight": st.column_config.ProgressColumn(
-                        "Weight", format="%.1f%%", min_value=0, max_value=df["Weight"].max() if not df.empty else 1,
+                        "Weight", format="%.1f%%", min_value=0,
+                        max_value=float(df["Weight"].max()) if not df.empty else 100.0,
                     ),
                     "Value": st.column_config.NumberColumn("$ Value", format="$%.0f"),
                     "Sentiment": st.column_config.NumberColumn("Sentiment", format="%+.2f", help="Claude sentiment score (-1 to +1)"),
@@ -525,50 +690,65 @@ if daily_df.empty or "portfolio_value" not in daily_df.columns or len(daily_df) 
     )
 else:
     daily_df["date"] = pd.to_datetime(daily_df["date"]).dt.normalize()
-    first_val = daily_df["portfolio_value"].iloc[0]
-    norm_port = daily_df["portfolio_value"] / first_val * 100
+    starting_val = float(daily_df["portfolio_value"].iloc[0])
+    port_values = daily_df["portfolio_value"].astype(float).copy()
+
+    # Pin the most recent point to live equity so the curve tip matches Alpaca.
+    if live and live.get("equity"):
+        port_values.iloc[-1] = float(live["equity"])
 
     fig_eq = go.Figure()
     fig_eq.add_trace(go.Scatter(
-        x=daily_df["date"], y=norm_port, name="Portfolio",
+        x=daily_df["date"], y=port_values, name="Portfolio",
         line=dict(color=COLOR["primary"], width=2.5),
-        fill="tozeroy",
-        fillcolor="rgba(59, 130, 246, 0.08)",
-        hovertemplate="<b>Portfolio</b><br>%{x|%b %d}<br>$%{y:.2f}<extra></extra>",
+        mode="lines+markers",
+        marker=dict(size=6, color=COLOR["primary"], line=dict(width=0)),
+        hovertemplate="<b>Portfolio</b><br>%{x|%b %d}<br>$%{y:,.2f}<extra></extra>",
     ))
 
+    # SPY overlay, scaled to start at the same $ value as portfolio for direct comparison
     try:
         from data import load_price_cache
-        cached = load_price_cache(max_age_hours=12)
+        cached = load_price_cache(max_age_hours=24)
         if cached is not None and "SPY" in cached.columns:
             spy = cached["SPY"].dropna()
             start_idx = daily_df["date"].min()
             spy_window = spy[spy.index >= start_idx]
             if not spy_window.empty:
-                spy_norm = spy_window / spy_window.iloc[0] * 100
+                # Scale SPY so it starts at the same dollar value as your portfolio
+                spy_scaled = spy_window / spy_window.iloc[0] * starting_val
                 fig_eq.add_trace(go.Scatter(
-                    x=spy_norm.index, y=spy_norm.values, name="SPY",
+                    x=spy_scaled.index, y=spy_scaled.values, name="SPY (scaled)",
                     line=dict(color=COLOR["text_3"], width=2, dash="dash"),
-                    hovertemplate="<b>SPY</b><br>%{x|%b %d}<br>$%{y:.2f}<extra></extra>",
+                    hovertemplate="<b>SPY</b><br>%{x|%b %d}<br>$%{y:,.2f}<extra></extra>",
                 ))
     except Exception:
         pass
 
     days = max((daily_df["date"].iloc[-1] - daily_df["date"].iloc[0]).days, 1)
-    total_ret = norm_port.iloc[-1] / 100 - 1
-    cagr = (norm_port.iloc[-1] / 100) ** (365.25 / days) - 1 if days > 0 else 0
+    final_val = float(port_values.iloc[-1])
+    total_ret = final_val / starting_val - 1
+    cagr = (final_val / starting_val) ** (365.25 / days) - 1 if days > 0 else 0
 
     c1, c2, c3 = st.columns(3)
     with c1: st.metric("Total Return", _format_pct(total_ret))
     with c2: st.metric("Annualized (CAGR)", _format_pct(cagr))
     with c3: st.metric("Trading Days", f"{len(daily_df)}")
 
+    # Smart y-axis range: pad ±2% around min/max so tiny moves are visible
+    y_min = float(port_values.min())
+    y_max = float(port_values.max())
+    spread = max(y_max - y_min, y_max * 0.01)   # at least 1% spread so the chart isn't a hairline
+    pad = spread * 0.35
+
+    _eq_layout = {**PLOTLY_BASE}
+    _eq_layout["yaxis"] = {**PLOTLY_BASE["yaxis"], "range": [y_min - pad, y_max + pad]}
     fig_eq.update_layout(
-        **PLOTLY_LAYOUT, height=380,
-        xaxis_title=None, yaxis_title="Growth of $100",
-        legend=dict(orientation="h", y=1.08, x=0, bgcolor="rgba(0,0,0,0)"),
+        **_eq_layout, height=380,
+        xaxis_title=None, yaxis_title="Portfolio Value",
+        legend={**LEGEND_BASE, "orientation": "h", "y": 1.08, "x": 0},
     )
-    fig_eq.update_yaxes(tickprefix="$")
+    fig_eq.update_yaxes(tickprefix="$", tickformat=",.0f")
     st.plotly_chart(fig_eq, use_container_width=True, config={"displayModeBar": False})
 
 
@@ -580,7 +760,7 @@ if wl_df.empty:
     st.markdown(
         f'<div style="background:{COLOR["surface"]}; border:1px solid {COLOR["border"]}; '
         f'border-radius:12px; padding:2rem; text-align:center; color:{COLOR["text_3"]};">'
-        f'No watchlist data yet — scan runs each morning</div>',
+        f'No watchlist data yet. Scan runs each morning.</div>',
         unsafe_allow_html=True,
     )
 else:
@@ -589,7 +769,7 @@ else:
     alert_tickers = set(alerts_df["ticker"].tolist()) if not alerts_df.empty else set()
 
     display = latest_wl[["ticker", "price", "today_pct", "mom_5d", "sentiment_score"]].copy()
-    display["Alert"] = display["ticker"].apply(lambda t: "🔔" if t in alert_tickers else "")
+    display["Alert"] = display["ticker"].apply(lambda t: "ALERT" if t in alert_tickers else "")
     display = display.rename(columns={
         "ticker": "Ticker", "price": "Price", "today_pct": "Today",
         "mom_5d": "5-Day", "sentiment_score": "Sentiment",
@@ -597,7 +777,7 @@ else:
 
     if not alerts_df.empty:
         st.markdown(
-            f'<div class="status-badge badge-warning">🔔 {len(alerts_df)} active alerts</div>',
+            f'<div class="status-badge badge-warning">{len(alerts_df)} active alerts</div>',
             unsafe_allow_html=True,
         )
         st.markdown("<div style='margin-bottom: 0.5rem;'></div>", unsafe_allow_html=True)
@@ -623,7 +803,7 @@ else:
 
 # ── BACKTEST ──────────────────────────────────────────────────────────────────
 
-st.markdown("## Backtest — 2019 to Today")
+st.markdown("## Backtest, 2019 to today")
 
 if qdf.empty:
     st.markdown(
@@ -668,9 +848,9 @@ else:
                     hovertemplate=f"<b>{strat}</b><br>%{{x}}: %{{y:+.2f}}%<extra></extra>",
                 ))
         fig_q.update_layout(
-            **PLOTLY_LAYOUT, barmode="group", height=420,
+            **PLOTLY_BASE, barmode="group", height=420,
             xaxis_title=None, yaxis_title="Quarterly Return (%)",
-            legend=dict(orientation="h", y=1.08, x=0),
+            legend={**LEGEND_BASE, "orientation": "h", "y": 1.08, "x": 0},
         )
         fig_q.update_yaxes(ticksuffix="%", zerolinecolor=COLOR["border_2"], zerolinewidth=1.5)
         st.plotly_chart(fig_q, use_container_width=True, config={"displayModeBar": False})
@@ -715,7 +895,7 @@ st.markdown("## Live Tools")
 tab1, tab2, tab3 = st.tabs(["Dry Run", "Force Rebalance", "Efficient Frontier"])
 
 with tab1:
-    st.caption("Run the optimizer without placing any trades — see what the bot would do.")
+    st.caption("Run the optimizer without placing any trades. See what the bot would do.")
     strategy_choice = st.selectbox("Strategy", ["HRP_MOMENTUM", "HRP", "MAX_SHARPE"], key="dr_strat")
     if st.button("Run Optimizer", key="dr_btn", type="primary"):
         with st.spinner("Optimizing…"):
@@ -736,12 +916,15 @@ with tab1:
 
                 weights_dr = {k: v for k, v in result_dr["weights"].items() if v > 0.001}
                 df_dr = pd.DataFrame([
-                    {"Asset": t, "Weight": w}
+                    {"Asset": t, "Weight": w * 100}   # percent units for ProgressColumn
                     for t, w in sorted(weights_dr.items(), key=lambda x: -x[1])
                 ])
                 st.dataframe(
                     df_dr, hide_index=True, use_container_width=True,
-                    column_config={"Weight": st.column_config.ProgressColumn("Weight", format="%.1f%%", min_value=0, max_value=df_dr["Weight"].max() if not df_dr.empty else 1)},
+                    column_config={"Weight": st.column_config.ProgressColumn(
+                        "Weight", format="%.1f%%", min_value=0,
+                        max_value=float(df_dr["Weight"].max()) if not df_dr.empty else 100.0,
+                    )},
                 )
             except Exception as exc:
                 st.error(f"Optimizer failed: {exc}")
@@ -750,15 +933,15 @@ with tab2:
     st.caption("Force the full rebalance pipeline to run NOW. Places real paper trades on Alpaca.")
     confirm = st.checkbox("I understand this will place paper trades")
     if confirm and st.button("Run Full Pipeline", key="fr_btn", type="primary"):
-        with st.spinner("Running pipeline — this takes ~3-8 minutes…"):
+        with st.spinner("Running pipeline. This takes 3 to 8 minutes."):
             try:
                 import importlib, main as m
                 importlib.reload(m)
                 m.main()
-                st.success("Done — refresh to see updated logs.")
+                st.success("Done. Refresh to see updated logs.")
                 st.cache_data.clear()
             except SystemExit:
-                st.info("Market is closed — bot exited cleanly. Nothing was traded.")
+                st.info("Market is closed. Bot exited cleanly. Nothing was traded.")
             except Exception as exc:
                 st.error(f"Pipeline error: {exc}")
 
@@ -827,9 +1010,9 @@ with tab3:
                 ))
 
                 fig_ef.update_layout(
-                    **PLOTLY_LAYOUT, height=500,
+                    **PLOTLY_BASE, height=500,
                     xaxis_title="Annual Volatility", yaxis_title="Expected Annual Return",
-                    legend=dict(orientation="h", y=1.05, x=0),
+                    legend={**LEGEND_BASE, "orientation": "h", "y": 1.05, "x": 0},
                 )
                 fig_ef.update_xaxes(tickformat=".0%")
                 fig_ef.update_yaxes(tickformat=".0%")

@@ -70,6 +70,47 @@ def get_current_positions() -> dict[str, float]:
         return {}
 
 
+def get_live_snapshot() -> dict | None:
+    """Return a live account snapshot for the dashboard, or None if unavailable.
+
+    {
+      "equity": float,            # current total portfolio value
+      "last_equity": float,       # equity at yesterday's close (for daily change)
+      "cash": float,
+      "positions": {symbol: {"market_value", "weight", "current_price",
+                             "unrealized_pl", "unrealized_plpc"}},
+    }
+    """
+    if not os.getenv("ALPACA_API_KEY") or not os.getenv("ALPACA_SECRET_KEY"):
+        return None
+    try:
+        tc = _trading_client()
+        account = tc.get_account()
+        positions = tc.get_all_positions()
+        equity = float(account.equity)
+        if equity <= 0:
+            return None
+        pos = {}
+        for p in positions:
+            mv = float(p.market_value)
+            pos[p.symbol] = {
+                "market_value": mv,
+                "weight": mv / equity if equity else 0.0,
+                "current_price": float(p.current_price),
+                "unrealized_pl": float(p.unrealized_pl),
+                "unrealized_plpc": float(p.unrealized_plpc),
+            }
+        return {
+            "equity": equity,
+            "last_equity": float(account.last_equity),
+            "cash": float(account.cash),
+            "positions": pos,
+        }
+    except Exception as exc:
+        logger.warning("get_live_snapshot failed: %s", exc)
+        return None
+
+
 # ── Rebalancing ────────────────────────────────────────────────────────────────
 
 def rebalance(target_weights: dict[str, float]) -> list[dict]:
