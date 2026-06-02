@@ -182,3 +182,22 @@ timestamp,ticker,score,confidence,summary
 2026-06-01T13:36:31.630080,TQQQ,0.65,0.72,"<cite index=""11-12,11-13"">Stock futures climbed as investors looked to build on May's record highs, with the stock market closing at all-time highs boosted by a massive tech rally following Dell's strong earnings and U.S.-Iran peace deal optimism.</cite>"
 2026-06-01T13:36:31.630080,VGT,0.65,0.72,"VGT benefited from strong semiconductor and AI infrastructure momentum, with Nvidia and Broadcom showing exceptional growth; however, upcoming Broadcom earnings (June 3) and concerns about AI spending sustainability present near-term volatility risks."
 2026-06-01T13:36:31.630080,BITO,-0.65,0.85,"<cite index=""12-2"">U.S. spot Bitcoin ETFs recorded $2.43 billion in net outflows in May—the largest monthly exodus of 2026</cite>, creating significant headwinds for BITO as <cite index=""19-2,19-3"">Bitcoin has fallen to its lowest level in over five weeks amid economic concerns and investor worries that the US-Iran war may increase inflation and lead to higher interest rates</cite>."
+2026-06-02T13:42:25.145301,NVDA,0.85,0.92,"NVDA surged 6.3% following CEO Jensen Huang's major announcements at COMPUTEX, including RTX Spark for Windows PCs and full production of the Vera Rubin data center platform with enterprise customers."
+2026-06-02T13:42:25.145301,TSLA,-0.35,0.72,"Tesla stock declined 4.57% on June 1st amid competitive threats from OpenAI and concerns about SpaceX IPO diverting capital, partially offset by strong European sales."
+2026-06-02T13:42:25.145301,AAPL,0.0,0.0,unavailable
+2026-06-02T13:42:25.145301,PLTR,0.0,0.0,unavailable
+2026-06-02T13:42:25.145301,COIN,0.0,0.0,unavailable
+2026-06-02T13:43:49.099443,QQQ,0.25,0.65,QQQ rose 0.79% in the past 24 hours amid mixed signals from rising bond yields and geopolitical tensions offsetting AI infrastructure strength.
+2026-06-02T13:43:49.099443,TQQQ,0.65,0.72,"Tech sector surged on strong earnings (HPE, Marvell) and positive sentiment despite Middle East tensions; Nasdaq up 0.6%, with multiple QQQ holdings rallying."
+2026-06-02T13:43:49.099443,UPRO,0.35,0.72,"UPRO tracks a moderately bullish broad market with S&P 500 near record highs on tech momentum, but facing headwinds from geopolitical tension and valuations concerns."
+2026-06-02T13:43:49.099443,SOXL,0.0,0.0,unavailable
+2026-06-02T13:43:49.099443,TECL,0.0,0.0,unavailable
+2026-06-02T13:43:49.099443,VGT,0.0,0.0,unavailable
+2026-06-02T13:43:49.099443,MTUM,0.0,0.0,unavailable
+2026-06-02T13:43:49.099443,IWM,0.0,0.0,unavailable
+2026-06-02T13:43:49.099443,AVUV,0.0,0.0,unavailable
+2026-06-02T13:43:49.099443,BITO,0.0,0.0,unavailable
+2026-06-02T13:43:49.099443,VEA,0.0,0.0,unavailable
+2026-06-02T13:43:49.099443,GLD,0.0,0.0,unavailable
+2026-06-02T13:43:49.099443,TLT,0.0,0.0,unavailable
+2026-06-02T13:43:49.099443,SHV,-0.15,0.65,SHV showed minimal price movement with modest YTD gains amid elevated treasury yields and persistent inflation concerns that kept Fed rate hikes in focus.

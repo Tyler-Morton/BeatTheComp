@@ -123,3 +123,8 @@ timestamp,ticker,price,today_pct,mom_5d,mom_20d,sentiment_score,sentiment_summar
 2026-06-01T13:31:21.788884,META,635.0,0.0039,0.0405,0.0431,0.65,"Meta demonstrates strong Q1 momentum with beat earnings and AI-driven ad growth, though elevated capex guidance and legal headwinds create offset concerns."
 2026-06-01T13:31:21.788884,SERV,9.36,0.0011,0.0759,-0.0043,0.35,"SERV shows strong Q1 revenue growth (578% YoY) with expanding partnerships and new market focus, but faces profitability challenges with widening losses despite operational progress."
 2026-06-01T13:31:21.788884,GNRC,270.25,-0.0276,0.0004,0.0421,0.75,"Generac reported strong Q1 2026 earnings beating expectations and received a bullish upgrade from Jefferies citing data center growth potential, driving stock gains."
+2026-06-02T13:31:18.393582,NVDA,225.88,0.0068,0.0513,0.138,0.85,"NVDA surged 6.3% following CEO Jensen Huang's major announcements at COMPUTEX, including RTX Spark for Windows PCs and full production of the Vera Rubin data center platform with enterprise customers."
+2026-06-02T13:31:18.393582,TSLA,416.59,0.0017,-0.0392,0.0613,-0.35,"Tesla stock declined 4.57% on June 1st amid competitive threats from OpenAI and concerns about SpaceX IPO diverting capital, partially offset by strong European sales."
+2026-06-02T13:31:18.393582,AAPL,308.64,0.0076,0.001,0.1159,0.0,unavailable
+2026-06-02T13:31:18.393582,PLTR,157.85,-0.0174,0.1556,0.0809,0.0,unavailable
+2026-06-02T13:31:18.393582,COIN,176.68,-0.0325,-0.0185,-0.1296,0.0,unavailable

@@ -46,3 +46,5 @@ timestamp,ticker,price,today_pct,mom_5d,sentiment_score,reason
 2026-06-01T13:31:21.788884,PGY,15.41,0.0192,0.2077,0.65,5d momentum +20.8%
 2026-06-01T13:31:21.788884,SPCE,7.59,0.2273,1.341,0.75,single-day move +22.7%; sentiment score +0.75; 5d momentum +134.1%
 2026-06-01T13:31:21.788884,GNRC,270.25,-0.0276,0.0004,0.75,sentiment score +0.75
+2026-06-02T13:31:18.393582,NVDA,225.88,0.0068,0.0513,0.85,sentiment score +0.85
+2026-06-02T13:31:18.393582,PLTR,157.85,-0.0174,0.1556,0.0,5d momentum +15.6%
