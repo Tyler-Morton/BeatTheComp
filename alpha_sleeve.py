@@ -1,7 +1,10 @@
-"""Alpha sleeve — allocates a small % of the portfolio to top watchlist stocks.
+"""The alpha sleeve — our hand-picked individual-stock bets.
 
-Filters by sentiment + momentum, caps per-stock exposure, and merges into
-the main ETF weights so the broker can execute everything in one rebalance.
+Most of the portfolio sits in ETFs, but this carves off a slice (40%) for a few
+specific stocks that look hot right now. We screen the day's watchlist on news
+sentiment and momentum, keep only the strongest few, cap how big any one of them
+can get, and then fold them into the ETF weights so the broker can trade the whole
+thing in a single rebalance.
 """
 
 import logging
@@ -34,7 +37,7 @@ def _log_alert(message: str) -> None:
 
 
 def _evaluate(row: dict, min_sent: float, min_5d: float, require_pos_20d: bool) -> tuple[bool, str]:
-    """Return (passes, reject_reason) for a single watchlist row at given thresholds."""
+    """Does this one stock clear the bar? Returns (yes/no, and if no, why not)."""
     sent = float(row.get("sentiment_score", 0.0) or 0.0)
     mom_5d = float(row.get("mom_5d", 0.0) or 0.0)
     mom_20d = float(row.get("mom_20d", 0.0) or 0.0)
@@ -55,7 +58,9 @@ def _evaluate(row: dict, min_sent: float, min_5d: float, require_pos_20d: bool) 
 
 
 def _score(row: dict) -> float:
-    """Composite: bullish news + sustained trend, penalize chasing today's spike."""
+    """Rank the survivors. Reward bullish news and a steady climb; dock points for
+    a stock that's already spiked hard today (we don't want to buy the very top).
+    """
     sent = float(row.get("sentiment_score", 0.0) or 0.0)
     mom_5d = float(row.get("mom_5d", 0.0) or 0.0)
     mom_20d = float(row.get("mom_20d", 0.0) or 0.0)
@@ -70,7 +75,7 @@ def _pass(
     require_pos_20d: bool,
     log_rejections: bool,
 ) -> list[dict]:
-    """Run watchlist through filters at given thresholds. Returns qualifiers."""
+    """Push the whole watchlist through the filters and hand back whoever made it."""
     qualified: list[dict] = []
     for row in watchlist_data:
         ticker = row.get("ticker", "")
@@ -91,11 +96,12 @@ def _pass(
 
 
 def select_alpha_picks(watchlist_data: list[dict]) -> dict[str, float]:
-    """Return {ticker: weight_within_sleeve} for top qualifying watchlist stocks.
+    """Pick the final stocks and decide how to split the sleeve between them.
 
-    Tries strict filters first (config defaults). If that returns nothing,
-    falls back to a relaxed pass (~60% of each threshold). Empty dict only if
-    even the relaxed pass produces nothing — which triggers a loud alert.
+    First we try the strict filters (the config defaults). If literally nothing
+    clears them, we loosen the bars to about 60% and try again — better to own a
+    few okay names than to leave the sleeve empty. Only if even the relaxed pass
+    comes up empty do we bail out, and that fires a loud alert.
     """
     if not watchlist_data:
         logger.warning("Alpha sleeve called with empty watchlist — no candidates to score")
@@ -113,8 +119,8 @@ def select_alpha_picks(watchlist_data: list[dict]) -> dict[str, float]:
 
     relaxed_used = False
     if not qualified:
-        # Relaxed fallback: better to take moderate-conviction picks than nothing.
-        # Cuts sentiment/momentum bars ~40%, drops the positive-20d requirement.
+        # Nobody passed — so lower the bar rather than sit the day out. We cut the
+        # sentiment/momentum thresholds by ~40% and stop insisting on a positive month.
         relaxed_sent = ALPHA_MIN_SENTIMENT * 0.6
         relaxed_5d = ALPHA_MIN_5D_MOMENTUM * 0.6
         logger.warning(
@@ -149,16 +155,17 @@ def select_alpha_picks(watchlist_data: list[dict]) -> dict[str, float]:
     qualified.sort(key=lambda r: -r["score"])
     picks = qualified[:ALPHA_SLEEVE_PICKS]
 
-    # Weight by relative score, but cap per stock
+    # Hand out weight in proportion to score — the higher-rated names get more.
     total_score = sum(p["score"] for p in picks)
     raw_weights = {p["ticker"]: p["score"] / total_score for p in picks}
 
-    # Apply per-stock cap (as a fraction of the SLEEVE, not the whole portfolio)
+    # Don't let any single pick hog the sleeve. Note the cap is set as a slice of the
+    # whole portfolio, so we convert it into a slice of just the sleeve here.
     sleeve_max = ALPHA_MAX_PER_STOCK / ALPHA_SLEEVE_PCT if ALPHA_SLEEVE_PCT > 0 else 1.0
     sleeve_max = min(sleeve_max, 1.0)
     capped = {t: min(w, sleeve_max) for t, w in raw_weights.items()}
 
-    # Renormalize the sleeve to 100%
+    # After capping, scale the sleeve back up so it adds to 100% of itself.
     total = sum(capped.values())
     sleeve_weights = {t: w / total for t, w in capped.items()} if total > 0 else {}
 
@@ -177,28 +184,28 @@ def merge_with_etf_weights(
     etf_weights: dict[str, float],
     watchlist_data: list[dict],
 ) -> dict[str, float]:
-    """Combine ETF target weights with alpha sleeve picks.
+    """Blend the ETF weights and the stock picks into one final target.
 
-    Reduces all ETF weights proportionally by ALPHA_SLEEVE_PCT, then adds the
-    alpha picks to fill that space. Returns the merged weights summing to 1.0.
+    We shrink every ETF weight by the sleeve percentage to free up room, then drop
+    the stock picks into that space. The result still adds up to 100%.
     """
     if not ALPHA_SLEEVE_ENABLED:
         return etf_weights
 
     sleeve_picks = select_alpha_picks(watchlist_data)
     if not sleeve_picks:
-        return etf_weights   # no qualified picks → keep 100% in ETFs
+        return etf_weights   # nothing made the cut today → just stay all-ETF
 
-    # Scale ETFs down to (1 - sleeve_pct)
+    # Make room: shrink the ETFs down to whatever's left after the sleeve's share.
     etf_scale = 1.0 - ALPHA_SLEEVE_PCT
     scaled_etfs = {t: w * etf_scale for t, w in etf_weights.items()}
 
-    # Add alpha picks at sleeve_pct total
+    # Drop the stock picks into that freed-up space.
     combined = dict(scaled_etfs)
     for ticker, sleeve_w in sleeve_picks.items():
         combined[ticker] = combined.get(ticker, 0.0) + sleeve_w * ALPHA_SLEEVE_PCT
 
-    # Final renorm (should already be ~1.0)
+    # Tidy up so it sums to exactly 1.0 (it should already be basically there).
     total = sum(combined.values())
     if total > 0:
         combined = {t: w / total for t, w in combined.items()}

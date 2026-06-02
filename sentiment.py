@@ -1,7 +1,9 @@
-"""Sentiment analysis via Claude Batch API with web search.
+"""Reading the news mood for each stock, using Claude with web search.
 
-One batch call per run — all tickers in a single request for 50% cost savings.
-Falls back to individual synchronous calls if batch mode fails.
+For every ticker we ask Claude to skim the last day of headlines and score how
+bullish or bearish things feel. We send them all in one batch request, which is
+half the price of doing them one at a time. If the batch ever fails, we quietly
+fall back to plain one-at-a-time calls so we still get an answer.
 """
 
 import csv
@@ -21,8 +23,8 @@ logger = logging.getLogger(__name__)
 
 MODEL = "claude-haiku-4-5-20251001"
 MAX_TOKENS = 600
-BATCH_TIMEOUT_SEC = 600   # 10 min max wait
-POLL_INTERVAL_SEC = 8
+BATCH_TIMEOUT_SEC = 600   # give the batch up to 10 minutes before we give up on it
+POLL_INTERVAL_SEC = 8     # check whether it's finished every 8 seconds
 
 
 def _build_prompt(ticker: str) -> str:
@@ -41,8 +43,12 @@ def _build_prompt(ticker: str) -> str:
 
 
 def _parse_json(text: str) -> dict:
-    """Extract JSON object from model text output. Handles nested brackets."""
-    # Greedy match — pulls the largest {...} block (handles nested arrays/objects)
+    """Dig the JSON answer out of whatever Claude wrote back.
+
+    Models sometimes wrap the JSON in extra chatter, so we hunt for the actual
+    {...} block instead of assuming the whole reply is clean JSON.
+    """
+    # Grab the biggest {...} chunk we can find — this copes with nested arrays/objects.
     matches = re.findall(r"\{[^{}]*(?:\{[^{}]*\}[^{}]*)*\}", text, re.DOTALL)
     for m in matches:
         try:
@@ -51,7 +57,7 @@ def _parse_json(text: str) -> dict:
                 return data
         except json.JSONDecodeError:
             continue
-    # Last resort — try the whole text as JSON
+    # Nothing matched cleanly — as a last-ditch effort, try the whole reply as JSON.
     try:
         return json.loads(text.strip())
     except Exception:
@@ -72,10 +78,10 @@ def _default_result() -> dict:
     return {"score": 0.0, "confidence": 0.0, "summary": "unavailable", "key_headlines": []}
 
 
-# ── Batch path ─────────────────────────────────────────────────────────────────
+# ── The fast path: one batch for everything ──────────────────────────────────
 
 def _run_batch(client: anthropic.Anthropic, tickers: list[str]) -> dict[str, dict]:
-    """Submit a message batch and poll until complete."""
+    """Send every ticker off in a single batch, then wait around for the results."""
     requests = [
         {
             "custom_id": ticker,
@@ -113,10 +119,10 @@ def _run_batch(client: anthropic.Anthropic, tickers: list[str]) -> dict[str, dic
     return results
 
 
-# ── Synchronous fallback ───────────────────────────────────────────────────────
+# ── The slow path: one call at a time (only if the batch breaks) ─────────────
 
 def _run_sync(client: anthropic.Anthropic, tickers: list[str]) -> dict[str, dict]:
-    """Individual synchronous calls — used when batch fails."""
+    """Plan B — ask about each ticker individually when the batch route falls over."""
     results: dict[str, dict] = {}
     for ticker in tickers:
         try:
@@ -158,7 +164,12 @@ def _log_results(results: dict[str, dict]) -> None:
 # ── Public API ─────────────────────────────────────────────────────────────────
 
 def run_sentiment_analysis(tickers: list[str]) -> dict[str, dict]:
-    """Return {ticker: {score, confidence, summary, key_headlines}} for each ticker."""
+    """The one function the rest of the bot calls.
+
+    Give it a list of tickers, get back {ticker: {score, confidence, summary,
+    key_headlines}}. Tries the batch first, the sync fallback second, and if both
+    blow up it just returns neutral scores so the pipeline can keep moving.
+    """
     api_key = os.getenv("ANTHROPIC_API_KEY")
     if not api_key:
         logger.error("ANTHROPIC_API_KEY not set — returning neutral sentiment")

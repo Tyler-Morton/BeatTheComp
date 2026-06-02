@@ -1,4 +1,11 @@
-"""Market regime detection — three signals, majority vote."""
+"""Figuring out what kind of market we're in.
+
+We don't trust any single indicator, so we look at three different angles — how
+jumpy the market is, which way the trend points, and whether money is running to
+safety — and then just go with whatever two out of three agree on. The answer is
+one of RISK_ON (calm, trending up), CHOPPY (no clear direction), or RISK_OFF
+(scared, heading down).
+"""
 
 import csv
 import logging
@@ -16,12 +23,15 @@ RISK_ON = "RISK_ON"
 CHOPPY = "CHOPPY"
 RISK_OFF = "RISK_OFF"
 
-_PRIORITY = [CHOPPY, RISK_ON, RISK_OFF]  # tie-break: most conservative wins
+# If the three signals split 1-1-1, we break the tie by leaning toward the more
+# cautious read rather than the more aggressive one.
+_PRIORITY = [CHOPPY, RISK_ON, RISK_OFF]
 
 
-# ── Individual signals ────────────────────────────────────────────────────────
+# ── The three signals, each casting one vote ──────────────────────────────────
 
 def _vol_signal(spy_returns: pd.Series) -> str:
+    # How bouncy has the S&P been lately? Calm = good, wild = scary.
     ann_vol = spy_returns.tail(20).std() * np.sqrt(252)
     if ann_vol < 0.15:
         return RISK_ON
@@ -31,6 +41,8 @@ def _vol_signal(spy_returns: pd.Series) -> str:
 
 
 def _trend_signal(spy_prices: pd.Series) -> str:
+    # Which way is the market pointing? We use the classic moving-average read:
+    # above both averages = uptrend, below the long one = downtrend.
     if len(spy_prices) < 200:
         return CHOPPY
     spy = spy_prices.iloc[-1]
@@ -44,6 +56,8 @@ def _trend_signal(spy_prices: pd.Series) -> str:
 
 
 def _flight_signal(spy_prices: pd.Series, tlt_prices: pd.Series) -> str:
+    # "Flight to safety" check: when people get nervous they dump stocks (SPY) and
+    # pile into bonds (TLT). If bonds are clearly outrunning stocks, that's a worry.
     n = min(11, len(spy_prices), len(tlt_prices))
     if n < 2:
         return CHOPPY
@@ -62,7 +76,7 @@ def _majority_vote(signals: list[str]) -> str:
         counts[s] += 1
     max_count = max(counts.values())
     winners = [k for k, v in counts.items() if v == max_count]
-    # If tie, pick the most conservative via priority order
+    # If there's a tie, fall back to the cautious-leaning priority order.
     return min(winners, key=lambda x: _PRIORITY.index(x))
 
 
@@ -72,7 +86,10 @@ def detect_regime(
     spy_prices: pd.Series | None = None,
     tlt_prices: pd.Series | None = None,
 ) -> str:
-    """Detect regime from price series. Fetches fresh data if not supplied."""
+    """Work out the current regime from price history.
+
+    Pass in SPY and TLT prices if you have them; if not, we'll go fetch them.
+    """
     if spy_prices is None or tlt_prices is None:
         from data import fetch_prices_range
         end = datetime.today()

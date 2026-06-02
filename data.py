@@ -1,3 +1,11 @@
+"""Where all our price data comes from.
+
+Alpaca is our first choice (free, fast, no rate limits). If that ever hiccups we
+fall back to yfinance, and if even that's blocked we read from a saved-on-disk copy
+of the last good prices. Three layers deep so a bad day at one data source doesn't
+take the whole bot down.
+"""
+
 import logging
 import time
 from datetime import datetime, timedelta
@@ -10,11 +18,13 @@ import yfinance as yf
 
 logger = logging.getLogger(__name__)
 
-# Disk price cache — survives across runs, lets dashboard avoid yfinance hits
+# A copy of the latest prices saved to disk. It sticks around between runs so the
+# dashboard can read prices without having to hit yfinance itself.
 PRICE_CACHE = Path(__file__).parent / "prices_cache.parquet"
 
-# Browser-like session header — defeats yfinance's bot detection rate limiter.
-# Without this, yfinance returns "Too Many Requests" within seconds.
+# We pretend to be a normal web browser here. yfinance throttles anything that
+# looks like a bot, and without this header it starts returning "Too Many
+# Requests" within seconds.
 _yf_session = requests.Session()
 _yf_session.headers.update({
     "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 "
@@ -25,7 +35,7 @@ _yf_session.headers.update({
 
 
 def save_price_cache(prices: pd.DataFrame) -> None:
-    """Persist most recent price snapshot to disk for dashboard use."""
+    """Save the latest prices to disk so the dashboard can reuse them later."""
     try:
         prices.to_parquet(PRICE_CACHE)
         logger.info("Saved %d days × %d tickers to %s",
@@ -35,7 +45,7 @@ def save_price_cache(prices: pd.DataFrame) -> None:
 
 
 def load_price_cache(max_age_hours: float = 6.0) -> pd.DataFrame | None:
-    """Return cached prices if fresh enough, else None."""
+    """Read the saved prices back — but only if they're still recent enough to trust."""
     if not PRICE_CACHE.exists():
         return None
     age_hours = (time.time() - PRICE_CACHE.stat().st_mtime) / 3600
@@ -50,8 +60,10 @@ def load_price_cache(max_age_hours: float = 6.0) -> pd.DataFrame | None:
 
 
 def _alpaca_download(tickers: list[str], start: str, end: str) -> pd.DataFrame:
-    """Fetch daily close prices from Alpaca's IEX feed.
-    Free with paper account, no rate limits, fast batch download.
+    """Grab daily closing prices from Alpaca's IEX feed — our go-to source.
+
+    It's free with a paper account, has no rate limits, and pulls every ticker in
+    one batch, so it's both the fastest and the most reliable option we've got.
     """
     import os
     from alpaca.data.historical import StockHistoricalDataClient
@@ -68,14 +80,15 @@ def _alpaca_download(tickers: list[str], start: str, end: str) -> pd.DataFrame:
         symbol_or_symbols=list(tickers),
         timeframe=TimeFrame.Day,
         start=datetime.strptime(start, "%Y-%m-%d"),
-        end=datetime.strptime(end, "%Y-%m-%d") - timedelta(minutes=20),  # IEX delay buffer
+        end=datetime.strptime(end, "%Y-%m-%d") - timedelta(minutes=20),  # the IEX feed is ~15min delayed, so back off 20 to be safe
         feed=DataFeed.IEX,
     )
     bars = client.get_stock_bars(req).df
     if bars.empty:
         raise RuntimeError("Alpaca returned empty bars")
 
-    # Pivot to ticker columns with close prices
+    # Alpaca hands everything back stacked together; reshape it so each ticker
+    # gets its own column of closing prices.
     frames: dict[str, pd.Series] = {}
     for t in tickers:
         try:
@@ -94,7 +107,11 @@ def _alpaca_download(tickers: list[str], start: str, end: str) -> pd.DataFrame:
 def _yfinance_download(
     tickers: list[str], start: str, end: str, retries: int = 3,
 ) -> pd.DataFrame:
-    """Fallback yfinance fetcher with browser session."""
+    """Backup price source — only used when Alpaca lets us down.
+
+    Goes ticker by ticker with retries and that browser-disguise session, since
+    yfinance is flaky and quick to throttle.
+    """
     frames: list[pd.Series] = []
     for ticker in tickers:
         for attempt in range(retries):
@@ -118,7 +135,7 @@ def _yfinance_download(
 
 
 def _batch_download(tickers: list[str], start: str, end: str, retries: int = 3) -> pd.DataFrame:
-    """Try Alpaca IEX first (free + reliable), fall back to yfinance if it fails."""
+    """Try Alpaca first; if it throws for any reason, quietly switch to yfinance."""
     try:
         logger.info("Fetching prices via Alpaca IEX (%d tickers)...", len(tickers))
         return _alpaca_download(tickers, start, end)
@@ -128,13 +145,17 @@ def _batch_download(tickers: list[str], start: str, end: str, retries: int = 3) 
 
 
 def fetch_prices(tickers: list[str], lookback_days: int = 252) -> pd.DataFrame:
-    """Return adjusted closing prices. Uses disk cache as fallback if yfinance fails."""
+    """The main way the bot asks for prices.
+
+    Returns adjusted closes. If both live sources are down, it falls back to the
+    saved-on-disk copy so a run can still limp along on slightly stale data.
+    """
     end = datetime.today()
     start = end - timedelta(days=lookback_days + 90)
     try:
         return fetch_prices_range(tickers, start, end, tail=lookback_days)
     except RuntimeError as exc:
-        # yfinance fully blocked — try disk cache as last resort
+        # Both live sources struck out — fall back to the saved prices on disk.
         logger.warning("yfinance fetch failed: %s — trying disk cache", exc)
         cached = load_price_cache(max_age_hours=48)
         if cached is None:
@@ -153,7 +174,7 @@ def fetch_prices_range(
     end: datetime,
     tail: int | None = None,
 ) -> pd.DataFrame:
-    """Fetch adjusted close prices for a date range."""
+    """Same idea as fetch_prices, but for an exact start/end window (handy for backtests)."""
     prices = _batch_download(
         tickers,
         start=start.strftime("%Y-%m-%d"),
@@ -165,5 +186,5 @@ def fetch_prices_range(
 
 
 def get_returns(prices: pd.DataFrame) -> pd.DataFrame:
-    """Simple daily percentage returns, NaN rows dropped."""
+    """Turn a table of prices into day-over-day percentage changes (dropping empty rows)."""
     return prices.pct_change().dropna()

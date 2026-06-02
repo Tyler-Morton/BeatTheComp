@@ -1,4 +1,9 @@
-"""Risk management checks — all must pass before rebalancing."""
+"""The safety checks that run before we're allowed to trade.
+
+Think of this as the bouncer at the door. Every check has to pass before the bot
+places a single order — if any one of them trips, we skip trading that day and
+fire off an alert. Better to sit on our hands than do something dumb.
+"""
 
 import logging
 import os
@@ -47,7 +52,10 @@ def _alert(message: str) -> None:
 # ── Individual checks ──────────────────────────────────────────────────────────
 
 def check_drawdown(portfolio_value: float) -> tuple[bool, str]:
-    """Fail if portfolio is down >15% from its all-time high."""
+    """Pump the brakes if we've fallen too far from our best-ever value.
+
+    (The exact cutoff is DRAWDOWN_CIRCUIT_BREAKER over in config.)
+    """
     path = Path(DAILY_LOG)
     if not path.exists():
         return True, ""
@@ -69,7 +77,11 @@ def check_drawdown(portfolio_value: float) -> tuple[bool, str]:
 
 
 def check_volatility(returns: pd.DataFrame, weights: dict) -> tuple[bool, str]:
-    """Fail if 20-day realized portfolio vol exceeds MAX_PORTFOLIO_VOL."""
+    """Block the trade if the target portfolio would be too wild to stomach.
+
+    We estimate how bouncy this mix has been over the last 20 days and stop if
+    it's above MAX_PORTFOLIO_VOL.
+    """
     tickers = [t for t in weights if t in returns.columns]
     if not tickers:
         return True, ""
@@ -84,7 +96,7 @@ def check_volatility(returns: pd.DataFrame, weights: dict) -> tuple[bool, str]:
 
 
 def check_concentration(weights: dict) -> tuple[bool, str]:
-    """Fail if any single asset exceeds MAX_SINGLE_WEIGHT."""
+    """Don't let any one position get bigger than MAX_SINGLE_WEIGHT — no all-in bets."""
     for ticker, w in weights.items():
         if w > MAX_SINGLE_WEIGHT + 1e-6:
             msg = f"Concentration breach: {ticker} at {w:.1%} > {MAX_SINGLE_WEIGHT:.1%}"
@@ -94,7 +106,11 @@ def check_concentration(weights: dict) -> tuple[bool, str]:
 
 
 def check_correlation(returns: pd.DataFrame) -> tuple[bool, str]:
-    """Fail if average pairwise correlation of recent returns exceeds 0.85."""
+    """Make sure we're actually diversified, not just holding the same bet five times.
+
+    If everything we own is moving together (average correlation above 0.85),
+    that "diversification" is fake and we treat it as a red flag.
+    """
     if len(returns.columns) < 2:
         return True, ""
     corr = returns.tail(20).corr().values
@@ -109,10 +125,14 @@ def check_correlation(returns: pd.DataFrame) -> tuple[bool, str]:
 
 
 def should_rebalance(current_weights: dict, target_weights: dict) -> bool:
-    """Return True if any position drifted beyond REBALANCE_DRIFT_THRESHOLD."""
+    """Is it actually worth trading today?
+
+    Trading costs money, so we only bother if some position has drifted from its
+    target by more than REBALANCE_DRIFT_THRESHOLD. If we're already close, sit tight.
+    """
     all_tickers = set(current_weights) | set(target_weights)
     if not all_tickers:
-        return False  # nothing to compare
+        return False  # nothing on either side to compare, so nothing to do
     max_drift = max(
         abs(current_weights.get(t, 0.0) - target_weights.get(t, 0.0))
         for t in all_tickers
@@ -128,7 +148,7 @@ def run_all_checks(
     returns: pd.DataFrame,
     target_weights: dict,
 ) -> tuple[bool, list[str]]:
-    """Run all safety checks. Returns (all_passed, list_of_failure_messages)."""
+    """Run the whole checklist. Hands back (did everything pass?, list of what failed)."""
     failures: list[str] = []
     for ok, msg in [
         check_drawdown(portfolio_value),

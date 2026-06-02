@@ -1,4 +1,10 @@
-"""Daily execution pipeline — orchestrates all modules."""
+"""The daily run, start to finish.
+
+This is the conductor. It calls every other module in order — pull prices, find
+trending stocks, read sentiment, figure out the market, build the target portfolio,
+run the safety checks, and finally place the trades. If you want to know what the
+bot does each morning, read this file top to bottom.
+"""
 
 import concurrent.futures
 import csv
@@ -37,8 +43,12 @@ def _log_daily(row: dict) -> None:
 
 
 def _already_ran_today() -> bool:
-    """Check daily_log.csv — if today's date is already there with orders or notes,
-    we've already run successfully today and shouldn't re-run."""
+    """Have we already done a real run today?
+
+    We schedule the bot a few times each morning in case one firing misses, so we
+    need a guard against doing the work twice. This just peeks at the bottom of
+    daily_log.csv: if the last row is dated today, we've already run and bail out.
+    """
     path = Path(DAILY_LOG)
     if not path.exists():
         return False
@@ -47,7 +57,8 @@ def _already_ran_today() -> bool:
         df = pd.read_csv(path)
         if df.empty: return False
         today_str = str(datetime.today().date())
-        # Match either 'YYYY-MM-DD' or 'YYYY-MM-DD 00:00:00' formats
+        # The date might be stored as 'YYYY-MM-DD' or with a time tacked on, so
+        # just compare the first 10 characters.
         recent = df.iloc[-1]
         last_date = str(recent.get("date", ""))[:10]
         return last_date == today_str
@@ -60,41 +71,43 @@ def main() -> None:
     logger.info("Portfolio Bot — %s", datetime.now().strftime("%Y-%m-%d %H:%M"))
     logger.info("═" * 60)
 
-    # ── 0. Duplicate-run guard (multiple cron schedules per day) ──────────────
+    # ── 0. Don't run twice — we're scheduled multiple times as a safety net ───
     if _already_ran_today():
         logger.info("Already ran today — exiting (duplicate cron firing).")
         sys.exit(0)
 
-    # ── 1. Market open check ───────────────────────────────────────────────────
+    # ── 1. Is the market even open? If not, there's nothing to do ─────────────
     from broker import is_market_open
     if not is_market_open():
         logger.info("Market is closed — exiting cleanly.")
         sys.exit(0)
 
-    # ── 2. Fetch price data ────────────────────────────────────────────────────
+    # ── 2. Grab recent prices for everything we care about ────────────────────
     logger.info("Fetching price data…")
     all_tickers = list(dict.fromkeys(ASSETS + ["SPY", "TLT"]))
     prices = fetch_prices(all_tickers, lookback_days=252)
     returns = get_returns(prices)
     asset_returns = returns[[c for c in ASSETS if c in returns.columns]]
 
-    # Cache prices to disk so the dashboard doesn't have to call yfinance
+    # Stash the prices on disk so the dashboard can read them without hammering yfinance.
     from data import save_price_cache
     save_price_cache(prices)
 
-    # ── 3a. Discover trending stocks for today (Claude web search) ─────────────
+    # ── 3a. Ask Claude what's trending today ──────────────────────────────────
     extra_tickers: list[str] = []
     if TRENDING_DISCOVERY_ENABLED:
         from trending import discover_trending
         trending = discover_trending()
         extra_tickers = [t["ticker"] for t in trending]
 
-    # Combine static watchlist + today's trending stocks, deduped
+    # Glue the always-on watchlist together with today's trending names, no dupes.
     full_watchlist = list(dict.fromkeys(WATCHLIST + extra_tickers))
     logger.info("Total watchlist for today: %d stocks (%d static + %d trending)",
                 len(full_watchlist), len(WATCHLIST), len(extra_tickers))
 
-    # ── 3b. Sentiment + watchlist in parallel ─────────────────────────────────
+    # ── 3b. Run sentiment and the watchlist scan at the same time ─────────────
+    # These two don't depend on each other and both wait on slow API calls, so we
+    # fire them off together instead of one-then-the-other.
     logger.info("Starting sentiment analysis and watchlist scan (parallel)…")
     from sentiment import run_sentiment_analysis
     from watchlist import scan_watchlist
@@ -103,15 +116,17 @@ def main() -> None:
         sentiment_future = pool.submit(run_sentiment_analysis, [a for a in ASSETS if a in prices.columns])
         watchlist_future = pool.submit(scan_watchlist, full_watchlist)
         sentiment_results = sentiment_future.result()
-        watchlist_data = watchlist_future.result()   # full scan rows for alpha sleeve
+        watchlist_data = watchlist_future.result()   # the full scan, which the alpha sleeve picks from
 
-    # ── 4. Detect market regime ────────────────────────────────────────────────
+    # ── 4. Read the room — what kind of market are we in? ─────────────────────
     logger.info("Detecting market regime…")
     spy_prices = prices.get("SPY", None)
     tlt_prices = prices.get("TLT", None)
     regime = detect_regime(spy_prices, tlt_prices)
 
-    # ── 5. Auto-select strategy (regime + adaptive performance), then optimize ─
+    # ── 5. Pick the strategy for today, then build the target portfolio ───────
+    # The strategy is chosen from the market regime plus how each approach has
+    # actually been performing lately; then the optimizer turns that into weights.
     strategy = select_strategy(regime, returns=asset_returns)
     logger.info("Running optimizer: %s (regime=%s)…", strategy, regime)
     result = optimize(
@@ -126,7 +141,8 @@ def main() -> None:
         result["sharpe_ratio"], result["annual_volatility"] * 100, result["expected_annual_return"] * 100,
     )
 
-    # ── 5b. Apply alpha sleeve (top watchlist stocks) ─────────────────────────
+    # ── 5b. Mix in the alpha sleeve (our best individual-stock picks) ─────────
+    # This shrinks the ETF weights a bit and uses that room for the stock bets.
     from alpha_sleeve import merge_with_etf_weights
     target_weights = merge_with_etf_weights(etf_target_weights, watchlist_data)
 
@@ -135,7 +151,7 @@ def main() -> None:
         if w > 0.001:
             logger.info("  %-6s  %.1f%%", ticker, w * 100)
 
-    # ── 6. Risk checks ─────────────────────────────────────────────────────────
+    # ── 6. Safety checks — last chance to call the whole thing off ────────────
     from broker import get_portfolio_value, get_current_positions
     portfolio_value = get_portfolio_value()
     current_weights = get_current_positions()
@@ -153,13 +169,13 @@ def main() -> None:
             "expected_return": result["expected_annual_return"],
             "annual_vol": result["annual_volatility"],
             "orders_placed": 0,
-            "final_weights": json.dumps(target_weights),   # save intended weights for dashboard
+            "final_weights": json.dumps(target_weights),   # log what we wanted, even though we didn't trade — the dashboard shows it
             "notes": "; ".join(failures),
         })
         logger.warning("Pipeline aborted — risk checks failed.")
         return
 
-    # ── 7. Drift gate ──────────────────────────────────────────────────────────
+    # ── 7. Is it even worth trading? Skip if we're already close enough ───────
     if not should_rebalance(current_weights, target_weights):
         logger.info("No rebalance needed — drift below threshold.")
         _log_daily({
@@ -176,13 +192,13 @@ def main() -> None:
         })
         return
 
-    # ── 8. Rebalance ───────────────────────────────────────────────────────────
+    # ── 8. Actually place the trades ──────────────────────────────────────────
     logger.info("Rebalancing…")
     from broker import rebalance
     orders = rebalance(target_weights)
     logger.info("%d orders placed.", len(orders))
 
-    # ── 9. Log ────────────────────────────────────────────────────────────────
+    # ── 9. Write down what happened so we can look back on it later ───────────
     _log_daily({
         "date": datetime.today().date(),
         "strategy": strategy,

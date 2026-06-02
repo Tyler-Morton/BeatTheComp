@@ -1,8 +1,9 @@
-"""Dynamic trending stocks discovery via Claude with web search.
+"""Finding fresh stocks to watch each morning, using Claude + web search.
 
-Runs every morning before the watchlist scan. Asks Claude to identify
-stocks making big moves today (earnings, M&A, breakouts, news) and adds
-them to the watchlist alongside the static list.
+This runs first thing, before the watchlist scan. It basically asks Claude, "what's
+moving right now?" — earnings pops, buyouts, breakouts, anything in the news — and
+tacks those names onto our small permanent watchlist. So the universe the bot looks
+at is mostly rebuilt from scratch every day instead of being a fixed list.
 """
 
 import json
@@ -20,7 +21,7 @@ TRENDING_RAW_LOG = Path(__file__).parent / "trending_raw.csv"
 
 
 def _log_alert(message: str) -> None:
-    """Write a loud alert that something went sideways in trending discovery."""
+    """Make some noise in the alerts file when discovery goes wrong."""
     try:
         with open(ALERTS_LOG, "a") as f:
             f.write(f"{datetime.now().isoformat()} | TRENDING: {message}\n")
@@ -29,7 +30,11 @@ def _log_alert(message: str) -> None:
 
 
 def _log_raw_candidates(tickers: list[str], reasons: dict[str, str]) -> None:
-    """Append every raw candidate Claude returned to a CSV — pre-filter visibility."""
+    """Save every name Claude suggested, before any filtering.
+
+    This is our paper trail — when we wonder later "why didn't the bot pick X?",
+    this file shows whether X was even on the table that morning.
+    """
     try:
         new_file = not TRENDING_RAW_LOG.exists()
         with open(TRENDING_RAW_LOG, "a") as f:
@@ -87,7 +92,7 @@ _VALID_TICKER_RE = re.compile(r"^[A-Z]{1,5}$")
 
 
 def _validate_ticker(ticker: str) -> bool:
-    """Quick sanity check — must be 1-5 uppercase letters."""
+    """Cheap junk filter — a real ticker is just 1-5 capital letters."""
     return bool(_VALID_TICKER_RE.match(ticker))
 
 
@@ -96,7 +101,7 @@ def _extract_text(content: list) -> str:
 
 
 def _parse_response(text: str) -> tuple[list[str], dict[str, str]]:
-    """Pull tickers + reasons out of Claude's response."""
+    """Fish the ticker list and the reasons back out of Claude's reply."""
     matches = re.findall(r"\{[^{}]*(?:\{[^{}]*\}[^{}]*)*\}", text, re.DOTALL)
     for m in matches:
         try:
@@ -111,10 +116,11 @@ def _parse_response(text: str) -> tuple[list[str], dict[str, str]]:
 
 
 def discover_trending() -> list[dict]:
-    """Return list of {ticker, reason} for today's trending stocks.
+    """The one function main.py calls — get today's trending names.
 
-    Empty list if API unavailable or discovery fails — main pipeline falls
-    back to just the static WATCHLIST.
+    Hands back a list of {ticker, reason}. If the API is down or something breaks,
+    it just returns an empty list and the pipeline carries on with the small
+    permanent watchlist instead of crashing.
     """
     api_key = os.getenv("ANTHROPIC_API_KEY")
     if not api_key:
@@ -133,7 +139,7 @@ def discover_trending() -> list[dict]:
         text = _extract_text(response.content)
         tickers, reasons = _parse_response(text)
 
-        # Always log the raw response — visibility into what Claude actually returned
+        # Write down what came back no matter what, so we always have a record.
         _log_raw_candidates(tickers, reasons)
 
         if not tickers:
