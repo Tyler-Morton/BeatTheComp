@@ -24,6 +24,11 @@ from config import (
     REBALANCE_DRIFT_THRESHOLD,
 )
 
+try:
+    from config import CASH_ASSET
+except Exception:
+    CASH_ASSET = "SHV"
+
 logger = logging.getLogger(__name__)
 
 
@@ -96,8 +101,14 @@ def check_volatility(returns: pd.DataFrame, weights: dict) -> tuple[bool, str]:
 
 
 def check_concentration(weights: dict) -> tuple[bool, str]:
-    """Don't let any one position get bigger than MAX_SINGLE_WEIGHT — no all-in bets."""
+    """Don't let any one position get bigger than MAX_SINGLE_WEIGHT — no all-in bets.
+
+    The cash asset (SHV) is exempt: when the vol-target overlay de-risks, it parks a
+    large slice in cash on purpose, and parking in T-bills is not a risky concentration.
+    """
     for ticker, w in weights.items():
+        if ticker == CASH_ASSET:
+            continue
         if w > MAX_SINGLE_WEIGHT + 1e-6:
             msg = f"Concentration breach: {ticker} at {w:.1%} > {MAX_SINGLE_WEIGHT:.1%}"
             _alert(msg)

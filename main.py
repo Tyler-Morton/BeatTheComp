@@ -146,6 +146,24 @@ def main() -> None:
     from alpha_sleeve import merge_with_etf_weights
     target_weights = merge_with_etf_weights(etf_target_weights, watchlist_data)
 
+    # ── 5c. Risk overlay — vol-target the whole book, park the rest in cash ────
+    # Scales exposure toward a target volatility so the 3x book can't run wild into
+    # a crash. Leaves the underlying strategy untouched; just caps the risk.
+    from config import (RISK_OVERLAY_ENABLED, OVERLAY_TARGET_VOL,
+                        OVERLAY_ML_ENABLED, CASH_ASSET)
+    if RISK_OVERLAY_ENABLED:
+        from risk_overlay import apply_overlay
+        target_weights, overlay_info = apply_overlay(
+            target_weights, asset_returns,
+            target_vol=OVERLAY_TARGET_VOL, use_ml=OVERLAY_ML_ENABLED,
+            cash_asset=CASH_ASSET,
+        )
+        logger.info("Risk overlay: est_vol=%.0f%% → scaler=%.2f (vol=%.2f, ml=%.2f), "
+                    "parked %.0f%% in %s",
+                    overlay_info["est_portfolio_vol"] * 100, overlay_info["combined_scaler"],
+                    overlay_info["vol_scaler"], overlay_info["ml_scaler"],
+                    overlay_info["cash_parked"] * 100, CASH_ASSET)
+
     logger.info("Final target weights:")
     for ticker, w in sorted(target_weights.items(), key=lambda x: -x[1]):
         if w > 0.001:

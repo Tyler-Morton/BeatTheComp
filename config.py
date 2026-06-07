@@ -36,6 +36,16 @@ REBALANCE_DRIFT_THRESHOLD = 0.02 # only 2% of drift before we re-trade — keeps
 DRAWDOWN_CIRCUIT_BREAKER = 0.30  # don't hit the brakes until we're down 30% from the high
 MAX_PORTFOLIO_VOL = 0.90         # high ceiling on purpose — an all-3x-leveraged book naturally runs ~85% vol
 
+# ── Risk overlay (vol-targeting + optional ML throttle) ─────────────────────
+# Sits on top of the optimizer's weights: scales the whole book toward a target
+# volatility and parks the unused slice in cash (SHV). Tames the 3x book's vol and
+# drawdown without changing the underlying strategy. Backtested to cut a 3x book's
+# vol ~53%->20% and max drawdown ~-71%->-24% while staying above SPY.
+RISK_OVERLAY_ENABLED = True
+OVERLAY_TARGET_VOL = 0.20        # annual vol to scale the book toward
+OVERLAY_ML_ENABLED = False       # ML crash-throttle on top — OFF for now, enable after vol-target proves out live
+CASH_ASSET = "SHV"               # where the de-risked slice parks (ultra-short Treasuries)
+
 # ── Alpha sleeve (the individual-stock bets) ────────────────────────────────
 # Sets aside a chunk of the portfolio for hand-picked momentum names from the
 # watchlist. A stock has to clear both the sentiment and momentum bars to get in,

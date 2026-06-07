@@ -2,3 +2,13 @@
 __pycache__/
 *.pyc
 .DS_Store
+
+# Standalone research / shadow tester — keep local, do not push
+backtest_lowvol.py
+shadow_backtest.py
+lowvol_prices_cache.parquet
+shadow_strategy_log.csv
+strategy_prices_cache.parquet
+strategy.py
+strategy_lab.py
+strategy_lab_cache.parquet
