@@ -186,3 +186,27 @@ timestamp,ticker,price,today_pct,mom_5d,mom_20d,sentiment_score,sentiment_summar
 2026-06-05T13:31:28.298722,TWLO,237.3,0.0442,0.2855,0.2398,0.75,"TWLO shows strong bullish momentum driven by recent Q1 earnings beat, AI product announcements, multiple analyst price target raises, and positive investor conference reception."
 2026-06-05T13:31:28.298722,PUSA,5.71,-0.0746,0.3218,0.1921,-0.25,"PUSA declined 2.92% in recent trading following the announced Powerus-Swarmer partnership MOU, which generated mixed market reception despite strategic defense sector implications for the pending merger."
 2026-06-05T13:31:28.298722,HYSR,0.03,-0.0385,0.0,-0.1071,0.15,"HYSR shows modest positive momentum with recent price gains and manufacturing collaboration progress, but lacks major near-term catalysts and faces profitability challenges."
+2026-06-08T13:31:19.100024,NVDA,209.93,0.0235,-0.0632,-0.0234,-0.45,"NVDA declined 6.2% on sector-wide weakness following Broadcom's soft AI guidance, though company announcements on partnerships and new infrastructure remain positive."
+2026-06-08T13:31:19.100024,TSLA,395.93,0.0126,-0.048,-0.0757,-0.35,"Tesla stock faces near-term headwinds from next-generation Roadster demo delay and product execution challenges, partially offset by JPMorgan's major analyst upgrade to Neutral with 228% higher price target."
+2026-06-08T13:31:19.100024,AAPL,311.97,0.0151,0.0185,0.0646,0.35,"Apple stock declined 1.25% on June 5 ahead of critical WWDC announcement on June 8 featuring revamped AI Siri, with strong Q2 earnings but concerns about high expectations and memory cost pressures."
+2026-06-08T13:31:19.100024,PLTR,136.62,0.008,-0.1496,-0.0086,0.0,unavailable
+2026-06-08T13:31:19.100024,COIN,156.98,0.03,-0.1404,-0.2197,0.0,unavailable
+2026-06-08T13:31:19.100024,MRVL,288.72,0.0958,0.3158,0.6971,0.0,unavailable
+2026-06-08T13:31:19.100024,HPE,49.69,0.01,0.0573,0.5851,0.0,unavailable
+2026-06-08T13:31:19.100024,MU,946.36,0.0953,-0.0861,0.2672,0.0,unavailable
+2026-06-08T13:31:19.100024,LIFE,16.82,-0.021,-0.1101,-0.4501,0.0,unavailable
+2026-06-08T13:31:19.100024,LEGN,32.49,-0.004,0.2736,0.1554,0.0,unavailable
+2026-06-08T13:31:19.100024,RKLB,112.98,0.0263,-0.0769,0.0712,0.0,unavailable
+2026-06-08T13:31:19.100024,HOOD,84.37,0.023,-0.0701,0.0953,-0.35,"HOOD declined 6.63% in the past 24 hours amid broader market weakness, though recent initiatives in prediction markets and upcoming SpaceX IPO access provide some positive catalysts."
+2026-06-08T13:31:19.100024,COO,66.5,-0.0125,0.1048,0.1083,0.15,"Cooper Companies (COO) beat Q2 earnings with $1.21 EPS versus $1.10 consensus, but multiple analyst price target cuts in early June and recent 26% year decline indicate mixed sentiment despite strong operational momentum."
+2026-06-08T13:31:19.100024,NLST,2.91,-0.0673,-0.049,0.0858,0.25,"NLST showed strong Q1 2026 earnings with 262% revenue growth to $104.9M and net income of $8.6M, but stock declined 12.6% on announcement day amid insider selling and patent litigation concerns."
+2026-06-08T13:31:19.100024,LXFR,17.49,0.0323,0.0021,0.1231,0.0,unavailable
+2026-06-08T13:31:19.100024,ARCB,157.53,0.0157,0.1188,0.3022,0.0,unavailable
+2026-06-08T13:31:19.100024,HNGE,65.43,0.0285,0.0741,0.1681,0.0,unavailable
+2026-06-08T13:31:19.100024,TTAN,77.44,0.0006,-0.003,0.2285,0.0,unavailable
+2026-06-08T13:31:19.100024,VIDA,4.05,-0.2555,0.1638,0.0,0.0,unavailable
+2026-06-08T13:31:19.100024,GNRC,261.54,-0.0597,-0.0589,-0.0195,0.0,unavailable
+2026-06-08T13:31:19.100024,MTLS,6.57,0.0015,-0.0423,0.2144,0.0,unavailable
+2026-06-08T13:31:19.100024,ASTS,95.2,0.0171,-0.0989,0.2685,0.0,unavailable
+2026-06-08T13:31:19.100024,CRWD,678.53,0.0112,-0.1325,0.2857,0.35,"CrowdStrike reported strong Q1 2027 earnings with 26% YoY revenue growth and raised guidance, but stock fell 4-7% post-earnings despite multiple analyst upgrades."
+2026-06-08T13:31:19.100024,STI,35.16,-0.0156,6.1324,5.7491,0.85,"<cite index=""5-1"">Solidion Technology (STI) surged over 200% after unveiling a patented breakthrough in its extreme-climate battery platform designed for space missions</cite>."

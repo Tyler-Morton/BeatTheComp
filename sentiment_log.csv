@@ -301,3 +301,41 @@ timestamp,ticker,score,confidence,summary
 2026-06-05T13:36:04.952822,FOXX,0.65,0.72,"FOXX surged 130-140% today on heavy volume driven by momentum trading and low-float dynamics rather than confirmed fundamental catalysts, though underlying fundamentals show negative profitability and cash burn concerns."
 2026-06-05T13:36:04.952822,RKLB,0.65,0.75,Rocket Lab shows mixed signals with analyst upgrades and contract wins offset by space sector volatility amid SpaceX IPO speculation.
 2026-06-05T13:36:04.952822,MUR,0.15,0.72,"Mixed signals for MUR with strong Q1 revenue growth and KeyBanc upgrade offset by Jefferies downgrade, EBITDA miss, and macro headwinds from oil price weakness."
+2026-06-08T13:45:05.221099,QQQ,-0.45,0.75,"QQQ declined sharply last week on strong jobs data raising rate hike expectations, but is showing mixed signals today with sector recovery attempts offset by ongoing macro uncertainty."
+2026-06-08T13:45:05.221099,TQQQ,-0.65,0.85,TQQQ experienced a severe 14.28% crash on June 7 (Friday) following a stronger-than-expected May jobs report that sparked Fed rate hike fears and triggered a tech sector selloff.
+2026-06-08T13:45:05.221099,UPRO,0.65,0.72,"UPRO gained 0.67% in 24 hours as S&P 500 rebounded 0.93% on Monday with strong analyst upgrades to 8,100 target and AI chip strength offsetting geopolitical tensions."
+2026-06-08T13:45:05.221099,SOXL,0.0,0.0,unavailable
+2026-06-08T13:45:05.221099,TECL,0.0,0.0,unavailable
+2026-06-08T13:45:05.221099,VGT,0.0,0.0,unavailable
+2026-06-08T13:45:05.221099,MTUM,0.0,0.0,unavailable
+2026-06-08T13:45:05.221099,IWM,0.0,0.0,unavailable
+2026-06-08T13:45:05.221099,AVUV,0.0,0.0,unavailable
+2026-06-08T13:45:05.221099,BITO,0.0,0.0,unavailable
+2026-06-08T13:45:05.221099,VEA,-0.3,0.65,VEA declined 3.72% in the past 24 hours with no significant company-specific news or catalysts; weakness reflects broader international market headwinds.
+2026-06-08T13:45:05.221099,GLD,-0.55,0.75,"<cite index=""5-1"">GLD fell 3.65% in the past 24 hours as gold prices dropped below $4,370 per ounce</cite>, <cite index=""11-1"">driven by a stronger-than-expected US jobs report and ongoing Middle East uncertainty</cite>."
+2026-06-08T13:45:05.221099,TLT,-0.45,0.72,"TLT faced headwinds from stronger-than-expected May employment data pushing Treasury yields higher, pressuring long-duration bond prices despite modest trading volumes today."
+2026-06-08T13:45:05.221099,SHV,0.0,0.0,unavailable
+2026-06-08T13:46:38.722970,NVDA,-0.45,0.72,"NVDA declined 6.2% on sector-wide weakness following Broadcom's soft AI guidance, though company announcements on partnerships and new infrastructure remain positive."
+2026-06-08T13:46:38.722970,TSLA,-0.35,0.72,"Tesla stock faces near-term headwinds from next-generation Roadster demo delay and product execution challenges, partially offset by JPMorgan's major analyst upgrade to Neutral with 228% higher price target."
+2026-06-08T13:46:38.722970,AAPL,0.35,0.72,"Apple stock declined 1.25% on June 5 ahead of critical WWDC announcement on June 8 featuring revamped AI Siri, with strong Q2 earnings but concerns about high expectations and memory cost pressures."
+2026-06-08T13:46:38.722970,PLTR,0.0,0.0,unavailable
+2026-06-08T13:46:38.722970,COIN,0.0,0.0,unavailable
+2026-06-08T13:46:38.722970,MRVL,0.0,0.0,unavailable
+2026-06-08T13:46:38.722970,HPE,0.0,0.0,unavailable
+2026-06-08T13:46:38.722970,MU,0.0,0.0,unavailable
+2026-06-08T13:46:38.722970,LIFE,0.0,0.0,unavailable
+2026-06-08T13:46:38.722970,LEGN,0.0,0.0,unavailable
+2026-06-08T13:46:38.722970,RKLB,0.0,0.0,unavailable
+2026-06-08T13:46:38.722970,HOOD,-0.35,0.72,"HOOD declined 6.63% in the past 24 hours amid broader market weakness, though recent initiatives in prediction markets and upcoming SpaceX IPO access provide some positive catalysts."
+2026-06-08T13:46:38.722970,COO,0.15,0.65,"Cooper Companies (COO) beat Q2 earnings with $1.21 EPS versus $1.10 consensus, but multiple analyst price target cuts in early June and recent 26% year decline indicate mixed sentiment despite strong operational momentum."
+2026-06-08T13:46:38.722970,NLST,0.25,0.65,"NLST showed strong Q1 2026 earnings with 262% revenue growth to $104.9M and net income of $8.6M, but stock declined 12.6% on announcement day amid insider selling and patent litigation concerns."
+2026-06-08T13:46:38.722970,LXFR,0.0,0.0,unavailable
+2026-06-08T13:46:38.722970,ARCB,0.0,0.0,unavailable
+2026-06-08T13:46:38.722970,HNGE,0.0,0.0,unavailable
+2026-06-08T13:46:38.722970,TTAN,0.0,0.0,unavailable
+2026-06-08T13:46:38.722970,VIDA,0.0,0.0,unavailable
+2026-06-08T13:46:38.722970,GNRC,0.0,0.0,unavailable
+2026-06-08T13:46:38.722970,MTLS,0.0,0.0,unavailable
+2026-06-08T13:46:38.722970,ASTS,0.0,0.0,unavailable
+2026-06-08T13:46:38.722970,CRWD,0.35,0.75,"CrowdStrike reported strong Q1 2027 earnings with 26% YoY revenue growth and raised guidance, but stock fell 4-7% post-earnings despite multiple analyst upgrades."
+2026-06-08T13:46:38.722970,STI,0.85,0.9,"<cite index=""5-1"">Solidion Technology (STI) surged over 200% after unveiling a patented breakthrough in its extreme-climate battery platform designed for space missions</cite>."
