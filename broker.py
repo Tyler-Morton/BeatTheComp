@@ -232,14 +232,14 @@ def rebalance(target_weights: dict[str, float]) -> list[dict]:
             import time as _time
             start_bp = float(tc.get_account().buying_power)
             target_buys = sum(d for d in diffs.values() if d > MIN_ORDER_NOTIONAL)
-            for _ in range(15):  # 15 tries × 2s each = 30 seconds, then we give up waiting
+            for _ in range(45):  # 45 tries × 2s each = 90 seconds, then we give up waiting
                 _time.sleep(2)
                 bp_now = float(tc.get_account().buying_power)
                 if bp_now >= target_buys * 0.95 or bp_now > start_bp * 5:
                     logger.info("Sells settled — buying power now $%.2f", bp_now)
                     break
             else:
-                logger.warning("Sells still settling after 30s — buying power $%.2f (need $%.2f)",
+                logger.warning("Sells still settling after 90s — buying power $%.2f (need $%.2f)",
                                float(tc.get_account().buying_power), target_buys)
 
         # ── Step 3: do the buying, sized to the cash we really have ──────────

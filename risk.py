@@ -61,6 +61,15 @@ def check_drawdown(portfolio_value: float) -> tuple[bool, str]:
 
     (The exact cutoff is DRAWDOWN_CIRCUIT_BREAKER over in config.)
     """
+    # If we couldn't read the account (e.g. a broker timeout makes
+    # get_portfolio_value() return 0.0), don't mistake an *unreadable* balance for a
+    # -100% crash. Skip the check this run rather than firing a false circuit breaker.
+    if portfolio_value <= 0:
+        logger.warning(
+            "Drawdown check skipped — portfolio value unreadable (%.2f); "
+            "likely a broker connection issue, not a real loss.", portfolio_value
+        )
+        return True, ""
     path = Path(DAILY_LOG)
     if not path.exists():
         return True, ""
