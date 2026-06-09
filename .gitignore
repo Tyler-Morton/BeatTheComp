@@ -12,3 +12,9 @@ strategy_prices_cache.parquet
 strategy.py
 strategy_lab.py
 strategy_lab_cache.parquet
+ROADMAP.md
+numerai/
+kaggle/
+
+# Local Claude Code settings (machine-specific, do not push)
+.claude/settings.local.json
