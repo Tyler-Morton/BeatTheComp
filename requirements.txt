@@ -13,3 +13,4 @@ scikit-learn>=1.3.0
 
 # Web showcase page (web/app.py) — read-only portfolio site
 flask>=3.0
+requests>=2.31

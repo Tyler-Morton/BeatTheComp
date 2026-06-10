@@ -18,3 +18,7 @@ kaggle/
 
 # Local Claude Code settings (machine-specific, do not push)
 .claude/settings.local.json
+
+# Challenger bot - code is tracked (validated 2026-06-09, runs via Actions);
+# only the big research backtest cache stays local
+challenger/prices_cache.parquet
