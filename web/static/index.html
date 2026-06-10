@@ -124,6 +124,7 @@
         <div class="chart-legend">
           <span class="lg"><span class="lg-swatch port"></span>Portfolio <b id="lg-port">···</b></span>
           <span class="lg"><span class="lg-swatch spy"></span>S&amp;P 500 <b id="lg-spy">···</b></span>
+          <span class="lg" id="lg-chal-wrap" style="display:none"><span class="lg-swatch chal"></span>Challenger <b id="lg-chal">···</b></span>
           <span class="lg-diff" id="lg-diff"></span>
         </div>
         <div class="range-btns" id="range-btns">
@@ -163,6 +164,37 @@
     <div class="holdings reveal">
       <div class="alloc-bar" id="alloc-bar"></div>
       <div class="holdings-list" id="holdings-list"></div>
+    </div>
+  </section>
+
+  <!-- CHALLENGER -->
+  <section class="section" id="challenger" style="display:none">
+    <div class="section-head reveal">
+      <div class="section-label">The Challenger</div>
+      <h2 class="section-title">A second bot, racing the first</h2>
+      <p class="section-sub">A live A/B test on a separate $1,000 paper account. Same risk discipline, opposite bet: instead of leveraged tech under a 20% vol cap, the challenger runs a diversified three-sleeve book (trend-ramped core, defensive sectors, bonds and gold) under a 16% vol target. Whichever wins a month of live forward results becomes the main strategy.</p>
+    </div>
+    <div class="numbers-row reveal">
+      <div class="num-item">
+        <div class="num-label">Account Value</div>
+        <div class="num-value chal-accent" id="chal-equity">···</div>
+        <div class="num-sub" id="chal-since">live · Alpaca</div>
+      </div>
+      <div class="num-item">
+        <div class="num-label">Since Start</div>
+        <div class="num-value" id="chal-return">···</div>
+        <div class="num-sub" id="chal-days">forward, real fills</div>
+      </div>
+      <div class="num-item">
+        <div class="num-label">Vol Target</div>
+        <div class="num-value" id="chal-vol">···</div>
+        <div class="num-sub">vs 20% on the champion</div>
+      </div>
+      <div class="num-item">
+        <div class="num-label">Backtest Sharpe</div>
+        <div class="num-value" id="chal-sharpe">···</div>
+        <div class="num-sub">vs <span id="chal-spy-sharpe">···</span> for SPY, 2007 to 2026</div>
+      </div>
     </div>
   </section>
 

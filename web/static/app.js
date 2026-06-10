@@ -133,12 +133,19 @@ function renderChart(range) {
   const pts = filterRange(range);
   if (pts.length < 2) return;
 
-  // Rebase both lines to a common $1,000 start for this window.
+  // Rebase both lines to a common $1,000 start for this window. The challenger
+  // starts mid-chart, so it rebases to $1,000 at ITS first point (like any new
+  // fund joining a comparison) and the line simply begins there.
   const bP = pts[0].port, bS = pts[0].spy;
-  const view = pts.map(p => ({ date: p.date, port: p.port / bP * 1000, spy: p.spy / bS * 1000 }));
+  const firstChal = pts.find(p => p.chal != null);
+  const bC = firstChal ? firstChal.chal : null;
+  const view = pts.map(p => ({
+    date: p.date, port: p.port / bP * 1000, spy: p.spy / bS * 1000,
+    chal: (bC && p.chal != null) ? p.chal / bC * 1000 : null,
+  }));
   CHART_VIEW = view;
 
-  const all = view.flatMap(p => [p.port, p.spy]);
+  const all = view.flatMap(p => [p.port, p.spy, ...(p.chal != null ? [p.chal] : [])]);
   let lo = Math.min(...all), hi = Math.max(...all);
   const pad = (hi - lo) * 0.08 || hi * 0.02;
   lo -= pad; hi += pad;
@@ -193,6 +200,18 @@ function renderChart(range) {
     port.animate([{ strokeDashoffset: len }, { strokeDashoffset: 0 }], { duration: 1100, easing: 'cubic-bezier(0.23,1,0.32,1)', fill: 'forwards' });
   }
 
+  // Challenger line (amber). With one data point it's just the starting dot.
+  const chalIdx = view.map((p, i) => p.chal != null ? i : -1).filter(i => i >= 0);
+  if (chalIdx.length >= 2) {
+    const d = chalIdx.map((i, k) => `${k ? 'L' : 'M'} ${X(i).toFixed(1)} ${Y(view[i].chal).toFixed(1)}`).join(' ');
+    el('path', { d, fill: 'none', stroke: '#f59e0b', 'stroke-width': 2.25,
+      'stroke-linejoin': 'round', 'stroke-linecap': 'round' }, svg);
+  }
+  if (chalIdx.length) {
+    const li = chalIdx[chalIdx.length - 1];
+    el('circle', { cx: X(li), cy: Y(view[li].chal), r: 4.5, fill: '#f59e0b' }, svg);
+  }
+
   // End dots
   el('circle', { cx: X(n - 1), cy: Y(view[n - 1].spy), r: 3.5, fill: '#94a3b8' }, svg);
   el('circle', { cx: X(n - 1), cy: Y(view[n - 1].port), r: 4.5, fill: '#2563eb' }, svg);
@@ -209,6 +228,15 @@ function renderChart(range) {
   const diffEl = document.getElementById('lg-diff');
   diffEl.textContent = `${diff >= 0 ? '+' : ''}${diff.toFixed(1)}% vs S&P`;
   diffEl.className = 'lg-diff ' + (diff >= 0 ? 'pos' : 'neg');
+
+  const chalWrap = document.getElementById('lg-chal-wrap');
+  if (chalIdx.length) {
+    const lc = view[chalIdx[chalIdx.length - 1]].chal;
+    document.getElementById('lg-chal').textContent = `${money(lc)} · ${fmtRet((lc / 1000 - 1) * 100)}`;
+    chalWrap.style.display = '';
+  } else {
+    chalWrap.style.display = 'none';
+  }
 
   // Stash geometry for the hover handler
   svg._geo = { X, Y, n };
@@ -240,6 +268,7 @@ function initChartHover() {
       `<div class="tt-date">${d}</div>` +
       `<div class="tt-row"><span class="tt-dot" style="background:#2563eb"></span>Portfolio <b>${money2(p.port)}</b></div>` +
       `<div class="tt-row"><span class="tt-dot" style="background:#94a3b8"></span>S&amp;P 500 <b>${money2(p.spy)}</b></div>` +
+      (p.chal != null ? `<div class="tt-row"><span class="tt-dot" style="background:#f59e0b"></span>Challenger <b>${money2(p.chal)}</b></div>` : '') +
       `<div class="tt-row" style="color:${diff >= 0 ? '#34d399' : '#f87171'}">${diff >= 0 ? '+' : ''}${diff.toFixed(1)}% vs S&amp;P</div>`;
     const clamped = Math.min(Math.max(pxX, 70), rect.width - 70);
     tip.style.left = clamped + 'px';
@@ -346,6 +375,23 @@ async function loadData() {
 
   // ── Holdings ──
   renderHoldings(d.positions);
+
+  // ── Challenger section ──
+  if (d.challenger) {
+    const c = d.challenger;
+    document.getElementById('challenger').style.display = '';
+    document.getElementById('chal-equity').textContent = money(c.equity);
+    document.getElementById('chal-since').textContent =
+      (c.is_live ? 'live · Alpaca · since ' : 'since ') + c.started;
+    const r = document.getElementById('chal-return');
+    r.textContent = `${c.total_return >= 0 ? '+' : ''}${c.total_return.toFixed(1)}%`;
+    r.classList.add(c.total_return >= 0 ? 'pos' : 'neg');
+    document.getElementById('chal-days').textContent =
+      `${c.days} trading day${c.days === 1 ? '' : 's'}, forward, real fills`;
+    document.getElementById('chal-vol').textContent = `${c.backtest.target_vol}%`;
+    document.getElementById('chal-sharpe').textContent = c.backtest.sharpe.toFixed(2);
+    document.getElementById('chal-spy-sharpe').textContent = c.backtest.spy_sharpe.toFixed(2);
+  }
 
   // ── Since-inception metrics ──
   if (m) {

@@ -31,6 +31,7 @@ import pandas as pd
 STATIC_DIR = Path(__file__).resolve().parent / "static"
 DAILY_LOG = BASE_DIR / "daily_log.csv"
 PRICE_CACHE = BASE_DIR / "prices_cache.parquet"
+CHAL_LOG = BASE_DIR / "challenger" / "daily_log.csv"
 
 app = Flask(__name__, static_folder=str(STATIC_DIR))
 
@@ -101,6 +102,66 @@ def _live_snapshot():
         return get_live_snapshot()
     except Exception:
         return None
+
+
+# Real, out-of-sample backtest results for the challenger (challenger/backtest.py,
+# Tiingo 2007-2026). Single source of truth for the page.
+CHAL_BACKTEST = {"sharpe": 0.65, "spy_sharpe": 0.39, "vol": 12.1, "max_dd": -24,
+                 "spy_max_dd": -55, "target_vol": 16}
+CHAL_START_EQUITY = 1000.0
+
+
+def _challenger_equity():
+    """Live equity of the SECOND (challenger) paper account, read-only.
+
+    Uses its own TradingClient with the challenger keys; never touches the
+    champion's broker singleton."""
+    key = os.getenv("CHALLENGER_ALPACA_API_KEY")
+    sec = os.getenv("CHALLENGER_ALPACA_SECRET_KEY")
+    if not key or not sec:
+        return None
+    try:
+        from alpaca.trading.client import TradingClient
+        acct = TradingClient(key, sec, paper=True).get_account()
+        return float(acct.equity)
+    except Exception:
+        return None
+
+
+def _challenger_data():
+    """Daily equity points + summary stats for the challenger section."""
+    points: dict[str, float] = {}
+    if CHAL_LOG.exists():
+        try:
+            df = pd.read_csv(CHAL_LOG, parse_dates=["date"])
+            df = df[df["equity"].astype(float) > 0]
+            df = df.sort_values("date").drop_duplicates(subset="date", keep="last")
+            points = {d.strftime("%Y-%m-%d"): float(e)
+                      for d, e in zip(df["date"], df["equity"])}
+        except Exception:
+            points = {}
+
+    live = _challenger_equity()
+    today = pd.Timestamp.now().strftime("%Y-%m-%d")
+    if live:
+        points[max(points) if points and max(points) > today else today] = live
+    if not points:
+        if live is None:
+            return None
+        points = {today: live}
+
+    dates = sorted(points)
+    equity = points[dates[-1]]
+    total_return = (equity / CHAL_START_EQUITY - 1) * 100
+    return {
+        "equity": round(equity, 2),
+        "total_return": round(total_return, 2),
+        "started": dates[0],
+        "days": len(dates),
+        "is_live": live is not None,
+        "points": {d: round(v, 2) for d, v in points.items()},
+        "backtest": CHAL_BACKTEST,
+    }
 
 
 def _build_chart(daily: pd.DataFrame, live_equity: float):
@@ -258,6 +319,26 @@ def stats():
     chart = _build_chart(daily, equity if is_live else None)
     metrics = _metrics(daily, equity if is_live else None, chart, cash_pct)
 
+    # ── Challenger: annotate the chart series + build its summary block ───────
+    chal = _challenger_data()
+    if chal:
+        pts = chal.pop("points")
+        cdates = sorted(pts)
+        start = cdates[0]
+        last_val = None
+        for s in chart.get("series", []):
+            if s["date"] < start:
+                s["chal"] = None
+            else:
+                prior = [d for d in cdates if d <= s["date"]]
+                last_val = pts[prior[-1]] if prior else last_val
+                s["chal"] = last_val
+        # make sure the newest challenger point lands on the chart even if the
+        # champion's log hasn't caught up to that date yet
+        if chart.get("series") and cdates[-1] > chart["series"][-1]["date"]:
+            chart["series"].append({"date": cdates[-1], "port": chart["series"][-1]["port"],
+                                    "spy": chart["series"][-1]["spy"], "chal": pts[cdates[-1]]})
+
     return jsonify({
         "is_live": is_live,
         "equity": round(equity, 2),
@@ -270,6 +351,7 @@ def stats():
         "chart": chart,
         "metrics": metrics,
         "positions": positions,
+        "challenger": chal,
         "backtest": BACKTEST,
         "numerai": NUMERAI,
     })
