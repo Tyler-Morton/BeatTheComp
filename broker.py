@@ -184,12 +184,14 @@ def rebalance(target_weights: dict[str, float]) -> list[dict]:
         # Calculate dollar targets
         target_dollars = {sym: w * portfolio_value for sym, w in target_weights.items()}
 
-        # Get current dollar values
+        # Get current dollar values (+ share counts, for whole-share sells)
         current_dollars: dict[str, float] = {}
+        current_qty: dict[str, float] = {}
         try:
             positions = tc.get_all_positions()
             for p in positions:
                 current_dollars[p.symbol] = float(p.market_value)
+                current_qty[p.symbol] = float(p.qty)
         except Exception as exc:
             logger.warning("Could not fetch positions: %s", exc)
 
@@ -206,21 +208,46 @@ def rebalance(target_weights: dict[str, float]) -> list[dict]:
         for sym in sell_syms:
             diff = diffs[sym]
             try:
-                # Only ever sell up to 99.5% of what the position is worth. If we
-                # ask for 100% the rounding can land a hair over what we actually
-                # hold, and Alpaca rejects the whole thing with "insufficient qty."
                 current_val = current_dollars.get(sym, 0)
-                notional = min(abs(diff), current_val * 0.995)
-                if notional < MIN_ORDER_NOTIONAL: continue
-                req = MarketOrderRequest(
-                    symbol=sym, notional=round(notional, 2),
-                    side=OrderSide.SELL, time_in_force=TimeInForce.DAY,
-                )
-                order = tc.submit_order(req)
-                orders_placed.append({"symbol": sym, "side": "sell",
-                                       "notional": round(notional, 2),
-                                       "order_id": str(order.id)})
-                logger.info("Order placed: SELL %s $%.2f", sym, notional)
+                if _is_fractionable(tc, sym):
+                    # Only ever sell up to 99.5% of what the position is worth. If
+                    # we ask for 100% the rounding can land a hair over what we
+                    # actually hold, and Alpaca rejects it with "insufficient qty."
+                    notional = min(abs(diff), current_val * 0.995)
+                    if notional < MIN_ORDER_NOTIONAL: continue
+                    req = MarketOrderRequest(
+                        symbol=sym, notional=round(notional, 2),
+                        side=OrderSide.SELL, time_in_force=TimeInForce.DAY,
+                    )
+                    order = tc.submit_order(req)
+                    orders_placed.append({"symbol": sym, "side": "sell",
+                                           "notional": round(notional, 2),
+                                           "order_id": str(order.id)})
+                    logger.info("Order placed: SELL %s $%.2f", sym, notional)
+                else:
+                    # Non-fractionable (e.g. LASE/BJDX): Alpaca rejects notional
+                    # sells, so sell whole shares. On a full exit (target ~0),
+                    # dump every share — otherwise these become roach-motel
+                    # positions the bot can buy but never sell.
+                    qty_held = current_qty.get(sym, 0)
+                    price = current_val / qty_held if qty_held else 0.0
+                    if target_dollars.get(sym, 0.0) < MIN_ORDER_NOTIONAL:
+                        qty = int(qty_held)               # full exit
+                    elif price > 0:
+                        qty = int(abs(diff) // price)     # partial trim
+                    else:
+                        qty = 0
+                    if qty < 1: continue
+                    req = MarketOrderRequest(
+                        symbol=sym, qty=qty,
+                        side=OrderSide.SELL, time_in_force=TimeInForce.DAY,
+                    )
+                    order = tc.submit_order(req)
+                    est = qty * price
+                    orders_placed.append({"symbol": sym, "side": "sell", "qty": qty,
+                                           "notional": round(est, 2),
+                                           "order_id": str(order.id)})
+                    logger.info("Order placed: SELL %s %d shares (~$%.2f)", sym, qty, est)
             except Exception as exc:
                 logger.error("Sell failed for %s: %s", sym, exc)
 
