@@ -1,0 +1,2 @@
+date,equity,vol_scaler,est_vol,orders,weights,notes
+2026-06-10,1000.02,1.0,0.154,7,"{""QLD"": 0.225, ""QQQ"": 0.225, ""XLP"": 0.0933, ""XLU"": 0.0933, ""XLV"": 0.0933, ""TLT"": 0.1992, ""GLD"": 0.0708}",
