@@ -69,6 +69,10 @@ def _read_daily() -> pd.DataFrame:
     try:
         df = pd.read_csv(DAILY_LOG, parse_dates=["date"])
         df = df.sort_values("date")
+        # Drop broker-timeout artifacts: a live account can never be worth $0, so a
+        # zero/negative value is a bad data point (Alpaca returned $0 on a timeout
+        # and the drawdown breaker logged a false -100%). Ignore those rows.
+        df = df[df["portfolio_value"].astype(float) > 0]
         # One row per date (the last run of that day) so the curve is clean.
         return df.drop_duplicates(subset="date", keep="last").reset_index(drop=True)
     except Exception:
