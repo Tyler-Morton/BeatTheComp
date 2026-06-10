@@ -1,0 +1,63 @@
+name: Challenger Daily Rebalance
+
+on:
+  # PRIMARY: the SAME cron-job.org dispatch that fires the champion at
+  # 6:30 AM PT — one external trigger, both bots. (Also accepts a dedicated
+  # challenger_trigger if we ever want to fire it separately.)
+  repository_dispatch:
+    types: [market_open_trigger, challenger_trigger]
+
+  # FALLBACK: GitHub's own cron (can lag 15min-3hr). Offset ~10 min from the
+  # champion's entries so the two workflows' log commits don't race.
+  # Duplicate-run guard in challenger/main.py makes extra runs harmless.
+  schedule:
+    - cron: "42 13 * * 1-5"   # 6:42 AM PDT
+    - cron: "10 14 * * 1-5"   # 7:10 AM PDT
+    - cron: "42 14 * * 1-5"   # 7:42 AM PDT
+    - cron: "10 15 * * 1-5"   # 8:10 AM PDT
+    - cron: "40 15 * * 1-5"   # 8:40 AM PDT
+    - cron: "10 16 * * 1-5"   # 9:10 AM PDT
+
+  workflow_dispatch:  # manual trigger
+
+jobs:
+  challenger:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run challenger pipeline
+        env:
+          CHALLENGER_ALPACA_API_KEY: ${{ secrets.CHALLENGER_ALPACA_API_KEY }}
+          CHALLENGER_ALPACA_SECRET_KEY: ${{ secrets.CHALLENGER_ALPACA_SECRET_KEY }}
+          TIINGO_API_KEY: ${{ secrets.TIINGO_API_KEY }}
+        run: python challenger/main.py
+
+      - name: Commit challenger logs + price cache
+        if: always()
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          # Only challenger files — disjoint from the champion's commit set,
+          # so concurrent runs can always rebase cleanly past each other.
+          git add challenger/daily_log.csv challenger/live_prices.parquet 2>/dev/null || true
+          git diff --cached --quiet && echo "Nothing to commit" && exit 0
+          git commit -m "Challenger log $(date -u '+%Y-%m-%d %H:%M UTC')"
+          for i in 1 2 3; do
+            git pull --rebase origin main && git push && break
+            echo "Push attempt $i failed, retrying in 5s..."
+            sleep 5
+          done
