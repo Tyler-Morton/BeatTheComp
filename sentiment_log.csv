@@ -358,3 +358,42 @@ timestamp,ticker,score,confidence,summary
 2026-06-09T13:51:06.824822,GLD,-0.55,0.72,"GLD declined 3.65% in the last 24 hours amid stronger-than-expected US jobs data, hawkish Fed rate expectations, and a stronger dollar, outweighing temporary relief from Middle East ceasefire developments."
 2026-06-09T13:51:06.824822,TLT,-0.25,0.65,"TLT declined 0.51% over past 24 hours amid elevated long-term Treasury yields (10Y at 4.54%) driven by strong labor data and inflation concerns, with Fed rate hike expectations rising to ~70% by year-end."
 2026-06-09T13:51:06.824822,SHV,0.15,0.65,"SHV faces headwinds from rising short-term Treasury yields driven by stronger job data and sticky inflation, though Fed expected to remain on hold near-term."
+2026-06-10T13:50:02.110951,QQQ,-0.35,0.65,"QQQ declined 1.14% today with semiconductor shorts capitalizing on tech weakness, though chip stocks showed volatility with some gaining on index additions; macro concerns from strong jobs data and rising rates persist."
+2026-06-10T13:50:02.110951,TQQQ,0.0,0.0,unavailable
+2026-06-10T13:50:02.110951,UPRO,-0.45,0.85,"UPRO declined 1.83% intraday as the S&P 500 fell 0.48% amid escalating U.S.-Iran military tensions, elevated inflation concerns, and higher oil prices."
+2026-06-10T13:50:02.110951,SOXL,-0.35,0.75,"SOXL faces headwinds from semiconductor sector volatility following Broadcom guidance disappointment and rate hike concerns, though showing intraday recovery."
+2026-06-10T13:50:02.110951,TECL,-0.65,0.85,"TECL declined sharply on June 9-10 due to technology sector sell-off triggered by Broadcom's weak guidance and geopolitical tensions with Iran, though early data suggests modest recovery."
+2026-06-10T13:50:02.110951,VGT,-0.35,0.75,"VGT declined 2.89% amid broad tech sector weakness driven by Broadcom guidance miss, AI valuation concerns, and geopolitical tensions with Iran."
+2026-06-10T13:50:02.110951,MTUM,0.0,0.0,unavailable
+2026-06-10T13:50:02.110951,IWM,0.0,0.0,unavailable
+2026-06-10T13:50:02.110951,AVUV,0.0,0.0,unavailable
+2026-06-10T13:50:02.110951,BITO,0.0,0.0,unavailable
+2026-06-10T13:50:02.110951,VEA,0.15,0.65,"VEA showed modest gains (+1.0% in last 24 hours) as developed market equities benefit from valuation recovery and sector breadth, though earnings headwinds and geopolitical uncertainty temper momentum."
+2026-06-10T13:50:02.110951,GLD,-0.35,0.72,"GLD declined ~2% today amid US-Iran military escalation, stronger dollar, and higher Treasury yields offsetting traditional safe-haven demand, with Citi projecting further downside if geopolitical tensions persist."
+2026-06-10T13:50:02.110951,TLT,-0.65,0.85,TLT faces significant headwinds from elevated long-end Treasury yields and persistent investor outflows to shorter-duration alternatives despite stable current trading.
+2026-06-10T13:50:02.110951,SHV,0.0,0.0,unavailable
+2026-06-10T13:56:32.343885,NVDA,0.15,0.65,"NVDA experienced mixed trading with an Apple partnership announcement supporting sentiment, but broader market weakness and sector headwinds created net negative pressure."
+2026-06-10T13:56:32.343885,TSLA,0.65,0.78,"Tesla stock gained 4.8% on unsupervised robotaxi launch in Austin and strong China sales growth, offset by SpaceX merger concerns and earlier Roadster delays."
+2026-06-10T13:56:32.343885,AAPL,-0.35,0.85,"Apple stock declined 2-5% following WWDC announcements of AI-powered Siri features, as investors questioned monetization strategies and device compatibility limitations despite analyst support."
+2026-06-10T13:56:32.343885,PLTR,-0.35,0.85,PLTR declined 3.22% on June 9 amid UK government review of £330M NHS contract and persistent valuation concerns despite strong Q1 earnings.
+2026-06-10T13:56:32.343885,COIN,0.35,0.65,"COIN stock rose 6.4% today amid crypto rally recovery, but faces headwinds from declining trading volumes, mixed earnings outlook, and analyst concerns about profitability trends."
+2026-06-10T13:56:32.343885,NUVL,0.85,0.92,"<cite index=""3-1"">GSK has agreed to acquire Nuvalent for $10.6 billion, with shares surging 39%</cite>, driven by a major acquisition deal and strong FDA regulatory momentum."
+2026-06-10T13:56:32.343885,SJM,0.75,0.95,"J.M. Smucker reported strong Q4 2026 earnings beating analyst expectations with 20% EPS growth and upbeat FY2027 guidance, driving an 11.7% stock surge."
+2026-06-10T13:56:32.343885,PTCT,0.65,0.85,"Citigroup upgraded PTCT to Buy with $108 price target on June 9, strong analyst sentiment, positive pipeline progress, and solid Q1 2026 results with raised guidance."
+2026-06-10T13:56:32.343885,TTAN,0.0,0.0,unavailable
+2026-06-10T13:56:32.343885,MU,0.0,0.0,unavailable
+2026-06-10T13:56:32.343885,MRVL,0.0,0.0,unavailable
+2026-06-10T13:56:32.343885,CHAI,0.0,0.0,unavailable
+2026-06-10T13:56:32.343885,IONQ,-0.35,0.72,"IONQ declined 9.84% on competitive quantum computing concerns from Rigetti and broader macro headwinds, offset by institutional buying and bullish analyst sentiment on its acquisition strategy."
+2026-06-10T13:56:32.343885,RGTI,-0.35,0.72,"RGTI declined significantly in recent sessions due to insider share sales and sentiment concerns despite positive quantum development progress, though analyst coverage remains mixed."
+2026-06-10T13:56:32.343885,NLST,0.35,0.45,NLST showed modest 1.55% intraday gain with no major news catalysts in past 24 hours; next earnings in August with positive patent litigation momentum but limited recent developments.
+2026-06-10T13:56:32.343885,IOVA,0.35,0.65,"Iovance holds annual shareholder meeting today with recent pipeline progress including IOV-5001 IND clearance, but faces mixed commercial execution amid modest stock volatility."
+2026-06-10T13:56:32.343885,RKLB,0.25,0.65,"RKLB declined 4.77% on June 9-10, 2026, amid broader space sector volatility and SpaceX IPO competition, though maintained support from positive fundamentals including a $2.2B backlog and Stifel's $132 price target."
+2026-06-10T13:56:32.343885,LASE,0.65,0.72,"LASE rallied on recent defense contract wins and medical orders, but faces significant headwinds from Nasdaq compliance issues, severe cash burn, and negative fundamentals despite momentum-driven share price appreciation."
+2026-06-10T13:56:32.343885,INDP,-0.75,0.65,"INDP is a clinical-stage biotech with severely depressed valuation, down 94% from 52-week high to near lows, with no recent analyst coverage, negative cash burn, and mixed clinical trial results from Decoy20 program."
+2026-06-10T13:56:32.343885,JLHL,0.65,0.6,"JLHL surged 23.59% today to $44.80, driven by strong momentum and elevated search interest, though valuation metrics show stretched multiples."
+2026-06-10T13:56:32.343885,QMCO,0.35,0.72,"QMCO scheduled to report Q4 earnings today with strong Q3 results showing revenue beat, doubled tape sales, and improved profitability metrics, alongside recent positive capital structure changes including $100M equity raise and term debt elimination."
+2026-06-10T13:56:32.343885,LEGN,0.65,0.72,"Legend Biotech shows bullish momentum with recent positive clinical trial data presentations, strong Q1 revenue growth, and overwhelmingly bullish analyst sentiment, though stock remains modestly up today."
+2026-06-10T13:56:32.343885,NINE,0.35,0.65,"NINE Energy Service showing strong 2026 rebound momentum as a top energy sector gainer in June, with post-bankruptcy recovery and improved Q2 guidance offsetting ongoing macro headwinds in North American completions."
+2026-06-10T13:56:32.343885,FICO,0.15,0.55,FICO shows mixed signals with strong Q2 earnings and new product launches offset by analyst price target cuts and competitive pressures.
+2026-06-10T13:56:32.343885,WST,0.75,0.85,"West Pharmaceutical Services received a major upgrade from Barclays on June 9, 2026, with price target raised to $400, coupled with strong analyst coverage and solid Q1 earnings beats."
