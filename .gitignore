@@ -22,3 +22,11 @@ kaggle/
 # Challenger bot - code is tracked (validated 2026-06-09, runs via Actions);
 # only the big research backtest cache stays local
 challenger/prices_cache.parquet
+
+# Research lab - local only, never pushed (experiments + journal)
+research/
+
+# Write-only artifacts: generated each run, read by nothing (keep local)
+trending_raw.csv
+alerts.log
+backtest_results.png
