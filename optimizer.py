@@ -63,7 +63,7 @@ def _apply_regime_bounds(
             # The stock ETFs (leveraged ones included) can go all the way up to 70%.
         elif regime == "CHOPPY":
             if ticker in _LEVERAGED_ETFS:
-                hi = min(hi, 0.10)         # leverage gets chopped up in a sideways market — keep it small
+                hi = min(hi, 0.03)         # 3x ETFs both decay AND crash in chop — keep them tiny (near RISK_OFF)
             elif ticker == "GLD":
                 lo = max(lo, 0.10)
             elif ticker == "TLT":
