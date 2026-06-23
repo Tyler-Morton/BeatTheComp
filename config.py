@@ -50,7 +50,9 @@ CASH_ASSET = "SHV"               # where the de-risked slice parks (ultra-short 
 # Sets aside a chunk of the portfolio for hand-picked momentum names from the
 # watchlist. A stock has to clear both the sentiment and momentum bars to get in,
 # and we only take the strongest few.
-ALPHA_SLEEVE_ENABLED = True
+ALPHA_SLEEVE_ENABLED = False  # CUT: unvalidated/un-backtestable LLM stock-picking; picks correlated
+                              # with the leveraged ETFs (concentration, not diversification); caused the
+                              # COIN over-concentration via a cap bug. Bot now runs a clean ETF-only book.
 ALPHA_SLEEVE_PCT = 0.40           # 40% of the book goes to these stock picks (the rest stays in ETFs)
 ALPHA_SLEEVE_PICKS = 3            # only the top 3 names — concentrated, not spread thin
 ALPHA_MIN_SENTIMENT = 0.5         # the news has to be at least decently bullish
