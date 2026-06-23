@@ -530,3 +530,22 @@ timestamp,ticker,score,confidence,summary
 2026-06-22T13:36:38.679304,AAPL,-0.15,0.65,"Apple faces headwinds from rising memory costs forcing price increases, offset partially by analyst bullish sentiment and strategic Intel partnership on domestic chip production."
 2026-06-22T13:36:38.679304,PLTR,-0.15,0.72,"PLTR declined 1.65% in the last 24 hours amid a challenging 2026 YTD performance of -27%, despite positive analyst upgrades and Google Cloud partnership announcement."
 2026-06-22T13:36:38.679304,COIN,0.25,0.65,"Coinbase stock down modestly on June 22 amid positive product developments (tokenized stocks, AI advisor) and analyst support, but weighed by overall crypto market weakness and regulatory headwinds."
+2026-06-23T16:23:26.932586,NVDA,-0.25,0.65,NVDA faces mixed sentiment with positive product announcements offset by broader AI sector sell-off and strategic portfolio reallocation by major investors.
+2026-06-23T16:23:26.932586,TSLA,0.15,0.72,"Tesla faces mixed sentiment with Waymo competitive pressures and safety concerns offset by AI initiatives, analyst support, and stock price stability near flat on the day."
+2026-06-23T16:23:26.932586,AAPL,0.0,0.0,unavailable
+2026-06-23T16:23:26.932586,PLTR,-0.65,0.8,"PLTR declined sharply on major contract loss in France, broader tech sector selloff, and valuation concerns, but analysts maintain buy ratings citing growth potential."
+2026-06-23T16:23:26.932586,COIN,-0.35,0.72,"Coinbase (COIN) faces headwinds from broader crypto market weakness, with Bitcoin down 3-4% amid tech selloff and ETF outflows, though the company's new product launches (tokenized equities, AI advisor) offer longer-term growth potential."
+2026-06-23T16:25:02.713952,QQQ,-0.35,0.72,"QQQ stumbled on rising rate hike odds and geopolitical tensions, with tech sector weakness from chip rout and AI rally cooling overshadowing recent gains."
+2026-06-23T16:25:02.713952,TQQQ,-0.65,0.85,TQQQ declined 0.59% as a major global tech selloff hit semiconductors and AI stocks amid valuation concerns and Micron earnings anxiety.
+2026-06-23T16:25:02.713952,UPRO,-0.25,0.6,"UPRO declined 3.5% intraday today as the S&P 500 weakness pressured the 3x leveraged ETF, though technical indicators show mixed signals with some bullish momentum conflicting with recent overbought reversal patterns."
+2026-06-23T16:25:02.713952,SOXL,0.55,0.65,SOXL gained 7.69% today with broader tech weakness but rebounded on chip sector strength and positive AI demand trends.
+2026-06-23T16:25:02.713952,TECL,0.0,0.0,unavailable
+2026-06-23T16:25:02.713952,VGT,0.0,0.0,unavailable
+2026-06-23T16:25:02.713952,MTUM,0.0,0.0,unavailable
+2026-06-23T16:25:02.713952,IWM,0.0,0.0,unavailable
+2026-06-23T16:25:02.713952,AVUV,0.0,0.0,unavailable
+2026-06-23T16:25:02.713952,BITO,0.0,0.0,unavailable
+2026-06-23T16:25:02.713952,VEA,0.0,0.0,unavailable
+2026-06-23T16:25:02.713952,GLD,0.0,0.0,unavailable
+2026-06-23T16:25:02.713952,TLT,0.0,0.0,unavailable
+2026-06-23T16:25:02.713952,SHV,0.0,0.3,No material news found for SHV in the last 24 hours; ETF trading near 52-week stable range.
