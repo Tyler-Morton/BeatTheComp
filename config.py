@@ -95,7 +95,10 @@ WATCHLIST = [
 # Most of the bot's stock universe isn't hardcoded anymore — Claude goes and finds
 # it fresh every morning. So instead of a fixed list, we get ~30 new names a day
 # based on what's actually surging, in the news, or being talked about.
-TRENDING_DISCOVERY_ENABLED = True
+TRENDING_DISCOVERY_ENABLED = False   # OFF on purpose: LLM stock-discovery was unreliable
+                                     # (returned prose, not JSON) and points the wrong way
+                                     # strategically — we don't want LLM-picked momentum names.
+                                     # Universe is now the fixed ASSETS + the WATCHLIST anchors.
 TRENDING_MAX_PICKS = 30          # how many names to pull each morning
 
 # ── Log paths ────────────────────────────────────────────────────────────────
