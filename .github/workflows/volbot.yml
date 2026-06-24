@@ -1,0 +1,43 @@
+name: VolBot Daily
+
+on:
+  repository_dispatch:
+    types: [market_open_trigger, volbot_trigger]
+  schedule:
+    - cron: "30 14 * * 1-5"   # ~10:30 AM ET (EDT) — after the open
+    - cron: "30 15 * * 1-5"   # ~11:30 AM ET fallback
+  workflow_dispatch:
+
+jobs:
+  volbot:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+      - name: Run volbot
+        working-directory: volbot
+        env:
+          VOLBOT_ALPACA_API_KEY: ${{ secrets.VOLBOT_ALPACA_API_KEY }}
+          VOLBOT_ALPACA_SECRET_KEY: ${{ secrets.VOLBOT_ALPACA_SECRET_KEY }}
+        run: python volbot.py
+      - name: Commit volbot logs + state
+        if: always()
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add volbot/volbot_log.csv volbot/volbot_state.json 2>/dev/null || true
+          git diff --cached --quiet && echo "Nothing to commit" && exit 0
+          git commit -m "VolBot log $(date -u '+%Y-%m-%d %H:%M UTC')"
+          for i in 1 2 3; do
+            git pull --rebase origin main && git push && break
+            sleep 5
+          done
