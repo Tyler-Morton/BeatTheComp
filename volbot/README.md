@@ -1,9 +1,12 @@
-# volbot — vol-premium SPY iron-condor paper sleeve
+# volbot v2 — LADDERED 3-index vol-premium paper sleeve (SPY/QQQ/IWM)
 
 A 4th, **isolated** paper sleeve that harvests the variance risk premium by selling defined-risk
-SPY iron condors, only when vol is expensive (rich-vol timing) and the term structure is calm.
-Validated in backtest at ~1.6 net Sharpe / DSR ~0.99 / worst month ~−1.6% / corr-to-SPY +0.35.
-Full design + evidence: `research/volbot_spec.md`.
+iron condors on SPY, QQQ and IWM — each gated by its own vol index (VIX/VXN/RVX), only when vol
+is expensive (rich-vol tercile) and the term structure is calm. Entries ladder weekly per
+underlying (max 4 rungs each, 3% risk per rung, 25% total at-risk cap).
+Modeled (research/volbot_ladder_backtest.py, net, real bill yields): ~+21%/yr, 12.3% vol,
+Sharpe 1.27, maxDD −13.7%, ~41 trades/yr, corr-to-equity-sleeves ~+0.2.
+Full design + evidence: `research/volbot_spec.md` + `research/metabook_spec.md`.
 
 > **This is a MODELED edge.** The paper forward-test is the validation gate. We are gathering the
 > one thing that can't be overfit: do real SPY option fills match the modeled premium?
@@ -34,12 +37,14 @@ python volbot.py
   other bots, once you trust it.
 
 ## What it does each run
-1. Pulls SPY price, VIX, VIX3M (FRED), 20d realized vol → VRP and its rolling top-tercile.
-2. If a condor is open: hold it (expire-worthless), unless cost-to-close ≥ 2× credit (loss-stop)
-   or it's ≤ 1 DTE (close to dodge assignment).
-3. If flat AND (VRP rich AND VIX < 30 AND contango): open one ~30-DTE, ~16Δ, $5-wide condor sized
-   to risk 2% of equity as max loss.
-4. Logs to `volbot_log.csv`; open-position state in `volbot_state.json`.
+1. Pulls SPY/QQQ/IWM spots (Alpaca) + VIX/VXN/RVX + VIX3M (FRED) → per-underlying VRP and its
+   rolling top-tercile, plus the market-wide contango gate (VIX < VIX3M).
+2. Manages every open rung: hold to expiry (expire-worthless), closing a rung only on the
+   2×-credit loss-stop or at ≤ 1 DTE (assignment dodge).
+3. Entries per underlying: if its filters pass (rich VRP + own IV < 30 + contango), it's been
+   ≥ 7 days since that name's last entry, it has < 4 open rungs, and total at-risk stays
+   ≤ 25% of equity → open one ~30-DTE, ~16Δ condor (wings ≈ 1% of spot), sized to 3% risk.
+4. Logs to `volbot_log.csv`; the rung list lives in `volbot_state.json`.
 
 ## Safety
 - Own keys, own account, own logs — **cannot touch champion/challenger.**
