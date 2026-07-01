@@ -1,0 +1,4 @@
+date,equity,contango,spy_iv,qqq_iv,iwm_iv,spy_rich,qqq_rich,iwm_rich,rungs,at_risk,dry_run,note
+2026-06-24,100000.0,,19.49,,,,,,,,True,[v1] flat: filters not met
+2026-06-24,100000.0,,19.49,,,,,,,,False,[v1] flat: filters not met
+2026-07-01,100000.0,,16.4,,,,,,,,False,[v1] False
