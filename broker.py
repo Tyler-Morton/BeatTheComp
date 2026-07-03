@@ -328,6 +328,36 @@ def rebalance(target_weights: dict[str, float]) -> list[dict]:
     return orders_placed
 
 
+def sweep_idle_cash() -> dict | None:
+    """Park leftover uninvested cash in the cash ETF (SHV) so it earns bill yield.
+
+    Runs after trading settles: whatever cash is still sitting idle beyond a small
+    buffer gets moved into CASH_ASSET instead of earning nothing. Returns the order
+    dict, or None if there was nothing worth sweeping (or the sweep is disabled).
+    """
+    from config import CASH_ASSET, CASH_SWEEP_BUFFER, CASH_SWEEP_ENABLED
+    if not CASH_SWEEP_ENABLED:
+        return None
+    from alpaca.trading.enums import OrderSide, TimeInForce
+    from alpaca.trading.requests import MarketOrderRequest
+    try:
+        tc = _trading_client()
+        acct = tc.get_account()
+        idle = min(float(acct.cash), float(acct.buying_power))
+        notional = round(idle - CASH_SWEEP_BUFFER, 2)
+        if notional < MIN_ORDER_NOTIONAL:
+            return None
+        req = MarketOrderRequest(symbol=CASH_ASSET, notional=notional,
+                                 side=OrderSide.BUY, time_in_force=TimeInForce.DAY)
+        order = tc.submit_order(req)
+        logger.info("Cash sweep: BUY %s $%.2f (idle cash -> bills)", CASH_ASSET, notional)
+        return {"symbol": CASH_ASSET, "side": "buy", "notional": notional,
+                "order_id": str(order.id)}
+    except Exception as exc:
+        logger.warning("Cash sweep failed (non-fatal): %s", exc)
+        return None
+
+
 # ── Account history ────────────────────────────────────────────────────────────
 
 def get_account_history(days: int = 365) -> pd.DataFrame:

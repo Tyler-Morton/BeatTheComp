@@ -133,16 +133,22 @@ def ml_crash_multiplier(prices: pd.DataFrame | None = None, horizon: int = 10,
 def apply_overlay(target_weights: dict[str, float], asset_returns: pd.DataFrame,
                   target_vol: float = 0.20, use_ml: bool = False,
                   cash_asset: str = "SHV", ml_prices: pd.DataFrame | None = None,
+                  shadow_ml: bool = False,
                   ) -> tuple[dict[str, float], dict]:
     """Scale `target_weights` toward `target_vol`; park the rest in `cash_asset`.
 
     Returns (new_weights, info). new_weights sum to ~1.0 (cash makes up the slack).
-    Pure transform — never trades.
+    Pure transform — never trades. `shadow_ml` computes the crash model's verdict
+    for LOGGING only (multiplier is not applied) — the trust-building mode.
     """
     base_sum = sum(target_weights.values())
     s_vt = vol_target_scaler(asset_returns, target_weights, target_vol)
+    shadow_mult = None
     if use_ml:
         s_ml, crash_p = ml_crash_multiplier(ml_prices)
+    elif shadow_ml:
+        shadow_mult, crash_p = ml_crash_multiplier(ml_prices)   # observe only
+        s_ml = 1.0
     else:
         s_ml, crash_p = 1.0, None
     s = float(np.clip(s_vt * s_ml, 0.0, 1.0))
@@ -159,6 +165,7 @@ def apply_overlay(target_weights: dict[str, float], asset_returns: pd.DataFrame,
         "combined_scaler": round(s, 3),
         "cash_parked": round(cash, 3),
         "crash_prob": (round(crash_p, 3) if crash_p is not None else None),
+        "ml_shadow_mult": (round(shadow_mult, 3) if shadow_mult is not None else None),
         "est_portfolio_vol": round(portfolio_vol(asset_returns, target_weights), 3),
     }
     return scaled, info

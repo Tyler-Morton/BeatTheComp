@@ -150,12 +150,14 @@ def main() -> None:
     # Scales exposure toward a target volatility so the 3x book can't run wild into
     # a crash. Leaves the underlying strategy untouched; just caps the risk.
     from config import (RISK_OVERLAY_ENABLED, OVERLAY_TARGET_VOL,
-                        OVERLAY_ML_ENABLED, CASH_ASSET)
+                        OVERLAY_ML_ENABLED, OVERLAY_ML_SHADOW, CASH_ASSET)
+    ml_note = ""
     if RISK_OVERLAY_ENABLED:
         from risk_overlay import apply_overlay
         target_weights, overlay_info = apply_overlay(
             target_weights, asset_returns,
             target_vol=OVERLAY_TARGET_VOL, use_ml=OVERLAY_ML_ENABLED,
+            shadow_ml=OVERLAY_ML_SHADOW and not OVERLAY_ML_ENABLED,
             cash_asset=CASH_ASSET,
         )
         logger.info("Risk overlay: est_vol=%.0f%% → scaler=%.2f (vol=%.2f, ml=%.2f), "
@@ -163,6 +165,11 @@ def main() -> None:
                     overlay_info["est_portfolio_vol"] * 100, overlay_info["combined_scaler"],
                     overlay_info["vol_scaler"], overlay_info["ml_scaler"],
                     overlay_info["cash_parked"] * 100, CASH_ASSET)
+        # Shadow record for the crash model: what it WOULD have done today (not applied).
+        if overlay_info.get("crash_prob") is not None and overlay_info.get("ml_shadow_mult") is not None:
+            ml_note = (f"ml_shadow p={overlay_info['crash_prob']:.2f} "
+                       f"would_mult={overlay_info['ml_shadow_mult']:.2f}")
+            logger.info("ML crash-throttle (SHADOW, not applied): %s", ml_note)
 
     logger.info("Final target weights:")
     for ticker, w in sorted(target_weights.items(), key=lambda x: -x[1]):
@@ -172,6 +179,12 @@ def main() -> None:
     # ── 6. Safety checks — last chance to call the whole thing off ────────────
     from broker import get_portfolio_value, get_current_positions
     portfolio_value = get_portfolio_value()
+    if portfolio_value <= 0:
+        # A failed API call returns 0.0 — never log or trade against a bogus value.
+        # (This is what wrote the phantom $0 equity row on 2026-06-08.)
+        logger.error("Portfolio value unavailable (got %.2f) — aborting run, logging nothing",
+                     portfolio_value)
+        return
     current_weights = get_current_positions()
 
     all_passed, failures = run_all_checks(portfolio_value, asset_returns, target_weights)
@@ -188,7 +201,7 @@ def main() -> None:
             "annual_vol": result["annual_volatility"],
             "orders_placed": 0,
             "final_weights": json.dumps(target_weights),   # log what we wanted, even though we didn't trade — the dashboard shows it
-            "notes": "; ".join(failures),
+            "notes": "; ".join(failures + ([ml_note] if ml_note else [])),
         })
         logger.warning("Pipeline aborted — risk checks failed.")
         return
@@ -196,6 +209,8 @@ def main() -> None:
     # ── 7. Is it even worth trading? Skip if we're already close enough ───────
     if not should_rebalance(current_weights, target_weights):
         logger.info("No rebalance needed — drift below threshold.")
+        from broker import sweep_idle_cash
+        swept = sweep_idle_cash()          # even on no-trade days, idle cash goes to bills
         _log_daily({
             "date": datetime.today().date(),
             "strategy": strategy,
@@ -204,17 +219,24 @@ def main() -> None:
             "sharpe": result["sharpe_ratio"],
             "expected_return": result["expected_annual_return"],
             "annual_vol": result["annual_volatility"],
-            "orders_placed": 0,
+            "orders_placed": 1 if swept else 0,
             "final_weights": json.dumps(current_weights),
-            "notes": "no_rebalance",
+            "notes": "; ".join(["no_rebalance"] + ([ml_note] if ml_note else [])
+                               + (["cash_swept"] if swept else [])),
         })
         return
 
     # ── 8. Actually place the trades ──────────────────────────────────────────
     logger.info("Rebalancing…")
-    from broker import rebalance
+    from broker import rebalance, sweep_idle_cash
     orders = rebalance(target_weights)
     logger.info("%d orders placed.", len(orders))
+    if orders:
+        import time as _time
+        _time.sleep(10)                    # let fills settle before measuring idle cash
+    swept = sweep_idle_cash()              # whatever's still uninvested goes to bills
+    if swept:
+        orders.append(swept)
 
     # ── 9. Write down what happened so we can look back on it later ───────────
     _log_daily({
@@ -227,7 +249,8 @@ def main() -> None:
         "annual_vol": result["annual_volatility"],
         "orders_placed": len(orders),
         "final_weights": json.dumps(target_weights),
-        "notes": "",
+        "notes": "; ".join(([ml_note] if ml_note else [])
+                           + (["cash_swept"] if swept else [])),
     })
 
     logger.info("Pipeline complete.")

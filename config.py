@@ -44,7 +44,11 @@ MAX_PORTFOLIO_VOL = 0.90         # high ceiling on purpose — an all-3x-leverag
 RISK_OVERLAY_ENABLED = True
 OVERLAY_TARGET_VOL = 0.20        # annual vol to scale the book toward
 OVERLAY_ML_ENABLED = False       # ML crash-throttle on top — OFF for now, enable after vol-target proves out live
+OVERLAY_ML_SHADOW = True         # SHADOW: compute the crash-prob daily and LOG what the throttle
+                                 # WOULD do, without acting — builds the trust record for enabling it
 CASH_ASSET = "SHV"               # where the de-risked slice parks (ultra-short Treasuries)
+CASH_SWEEP_ENABLED = True        # after trading, park leftover uninvested cash in CASH_ASSET
+CASH_SWEEP_BUFFER = 2.0          # dollars to leave loose for rounding/min-order slop
 
 # ── Alpha sleeve (the individual-stock bets) ────────────────────────────────
 # Sets aside a chunk of the portfolio for hand-picked momentum names from the
