@@ -280,3 +280,8 @@ timestamp,ticker,price,today_pct,mom_5d,mom_20d,sentiment_score,sentiment_summar
 2026-06-23T16:11:13.740446,AAPL,298.59,0.0053,0.0073,-0.0331,0.0,unavailable
 2026-06-23T16:11:13.740446,PLTR,118.94,-0.0047,-0.1171,-0.1311,-0.65,"PLTR declined sharply on major contract loss in France, broader tech sector selloff, and valuation concerns, but analysts maintain buy ratings citing growth potential."
 2026-06-23T16:11:13.740446,COIN,161.27,-0.0217,-0.0492,-0.1282,-0.35,"Coinbase (COIN) faces headwinds from broader crypto market weakness, with Bitcoin down 3-4% amid tech selloff and ETF outflows, though the company's new product launches (tokenized equities, AI advisor) offer longer-term growth potential."
+2026-07-07T16:03:34.984669,NVDA,195.4,-0.0008,0.0022,-0.0473,0.0,unavailable
+2026-07-07T16:03:34.984669,TSLA,407.63,-0.0289,-0.0102,0.0425,0.0,unavailable
+2026-07-07T16:03:34.984669,AAPL,314.2,0.0049,0.1152,0.0223,0.0,unavailable
+2026-07-07T16:03:34.984669,PLTR,135.72,0.024,0.173,0.0014,0.0,unavailable
+2026-07-07T16:03:34.984669,COIN,166.32,-0.0151,0.0967,0.0913,0.0,unavailable
