@@ -9,11 +9,11 @@ function initGradient() {
   const canvas = document.getElementById('gradient-canvas');
   if (!canvas) return;
   const ctx = canvas.getContext('2d');
+  // One hue only — a quiet blue field, not a multi-color gradient wash.
   const blobs = [
-    { color: '99, 179, 237',  r: 0.55, x: 0.75, y: 0.45, dx: 0.018, dy: 0.013, ph: 0 },
-    { color: '134, 239, 172', r: 0.45, x: 0.25, y: 0.70, dx: -0.014, dy: 0.016, ph: 2 },
-    { color: '147, 197, 253', r: 0.50, x: 0.50, y: 0.20, dx: 0.012, dy: -0.011, ph: 4 },
-    { color: '125, 211, 252', r: 0.40, x: 0.85, y: 0.80, dx: -0.016, dy: -0.013, ph: 1 },
+    { color: '147, 197, 253', r: 0.60, x: 0.78, y: 0.40, dx: 0.010, dy: 0.008, ph: 0 },
+    { color: '191, 219, 254', r: 0.50, x: 0.30, y: 0.75, dx: -0.008, dy: 0.009, ph: 2 },
+    { color: '219, 234, 254', r: 0.55, x: 0.55, y: 0.15, dx: 0.007, dy: -0.006, ph: 4 },
   ];
   let w, h, t = 0;
   function resize() {
@@ -362,11 +362,12 @@ async function loadData() {
   todayEl.className = 'stat-value ' + (d.day_change < 0 ? 'red' : 'green');
   document.getElementById('stat-equity-sub').textContent = d.is_live ? 'live · Alpaca' : 'last run · ' + d.last_run;
 
-  // ── Stats strip count-ups ──
+  // ── Stats strip count-ups (Sharpe/maxDD come from the verdict engine) ──
   armCountOnView('#stats-strip', () => {
     countUp(document.getElementById('stat-equity'), d.equity, { prefix: '$', decimals: 0 });
-    countUp(document.getElementById('stat-sharpe'), bt.sharpe, { decimals: 2 });
-    countUp(document.getElementById('stat-maxdd'), bt.max_dd, { suffix: '%' });
+    const champ = VERDICT && VERDICT.books && VERDICT.books.champion;
+    countUp(document.getElementById('stat-sharpe'), champ ? champ.sharpe : bt.sharpe, { decimals: 2 });
+    countUp(document.getElementById('stat-maxdd'), champ ? champ.maxdd * 100 : bt.max_dd, { suffix: '%' });
   });
 
   // ── Chart ──
@@ -407,20 +408,144 @@ async function loadData() {
     set('m-cash', m.cash_pct != null ? `${m.cash_pct}%` : 'n/a');
   }
 
-  // ── Backtest numbers ──
-  document.getElementById('num-dd-raw').textContent = bt.max_dd_raw;
-  armCountOnView('#backtest', () => {
-    countUp(document.getElementById('num-dsr'), bt.dsr, { decimals: 1, suffix: '%' });
-    countUp(document.getElementById('num-sharpe'), bt.sharpe, { decimals: 2 });
-    countUp(document.getElementById('num-vol'), bt.vol_reduction, { suffix: '%' });
-    countUp(document.getElementById('num-dd'), bt.max_dd, { suffix: '%' });
+}
+
+/* ─────────────────────────────────────────────────────────────────────────
+   7. Evidence: verdict report cards + the Monte Carlo fan chart.
+   Data comes from /static/verdict.json, written by research/verdict.py.
+   ───────────────────────────────────────────────────────────────────────── */
+let VERDICT = null;
+
+const pct = (v, dp = 1) => `${v >= 0 ? '+' : ''}${(v * 100).toFixed(dp)}%`;
+const pctu = (v, dp = 1) => `${(v * 100).toFixed(dp)}%`;
+
+function verdictCard(book, key) {
+  const chip = book.sufficiency.toLowerCase();
+  const [lo, hi] = book.sharpe_ci95;
+  // CI bar geometry: fixed -0.5..1.6 scale so all three cards align.
+  const S0 = -0.5, S1 = 1.6;
+  const px = v => Math.min(Math.max((v - S0) / (S1 - S0), 0), 1) * 100;
+  const rows = [
+    ['CAGR', pct(book.cagr)],
+    ['Volatility', pctu(book.vol)],
+    ['Max drawdown', pct(book.maxdd)],
+    ['Worst month', pct(book.worst_month)],
+  ];
+  if (book.alpha_ann != null) rows.push(['Alpha vs SPY', pct(book.alpha_ann) + '/yr']);
+  if (book.beta != null) rows.push(['Beta', book.beta.toFixed(2)]);
+  return `<article class="verdict-card" data-book="${key}">
+    <div class="verdict-top">
+      <span class="v-name">${book.name}</span>
+      <span class="v-chip ${chip}">${book.sufficiency}</span>
+    </div>
+    <div class="v-sharpe">
+      <div class="v-sharpe-num">${book.sharpe.toFixed(2)}<span> Sharpe</span></div>
+      <div class="v-ci">
+        <div class="v-ci-track">
+          <span class="v-ci-zero" style="left:${px(0)}%"></span>
+          <span class="v-ci-range ${lo > 0 ? 'pos' : ''}" style="left:${px(lo)}%;width:${px(hi) - px(lo)}%"></span>
+          <span class="v-ci-dot" style="left:${px(book.sharpe)}%"></span>
+        </div>
+        <div class="v-ci-label">95% CI ${lo.toFixed(2)} … ${hi.toFixed(2)} · ${book.years}y of data</div>
+      </div>
+    </div>
+    <div class="v-dsr">Deflated Sharpe <b>${pctu(book.dsr, 1)}</b><span class="v-k">after K=${book.k_trials} configs tried</span></div>
+    <dl class="v-rows">${rows.map(([k, v]) => `<div><dt>${k}</dt><dd>${v}</dd></div>`).join('')}</dl>
+  </article>`;
+}
+
+function renderFan(key) {
+  const svg = document.getElementById('fan-chart');
+  const probs = document.getElementById('fan-probs');
+  const book = VERDICT.books[key];
+  if (!svg || !book || !book.monte_carlo) return;
+  const mc = book.monte_carlo;
+  const fan = mc.fan;
+  const months = fan.days.map(d => d / 21);
+  const B = q => fan.bands[q];
+
+  const W = 880, H = 330, ML = 56, MR = 18, MT = 16, MB = 30;
+  const allVals = [...B('5'), ...B('95'), 0];
+  let lo = Math.min(...allVals), hi = Math.max(...allVals);
+  const pad = (hi - lo) * 0.08; lo -= pad; hi += pad;
+  const X = i => ML + (i / (months.length - 1)) * (W - ML - MR);
+  const Y = v => (H - MB) - ((v - lo) / (hi - lo)) * (H - MT - MB);
+
+  svg.innerHTML = '';
+  const mk = (tag, attrs) => { const n = document.createElementNS(SVGNS, tag);
+    for (const k in attrs) n.setAttribute(k, attrs[k]); svg.appendChild(n); return n; };
+
+  // gridlines + % labels
+  for (let t = 0; t < 5; t++) {
+    const v = lo + (hi - lo) * (t / 4), y = Y(v);
+    mk('line', { x1: ML, y1: y, x2: W - MR, y2: y, stroke: '#eef2f7', 'stroke-width': 1 });
+    const tx = mk('text', { x: ML - 10, y: y + 4, 'text-anchor': 'end',
+      'font-family': 'Geist Mono, monospace', 'font-size': 11, fill: '#94a3b8' });
+    tx.textContent = `${v >= 0 ? '+' : ''}${Math.round(v * 100)}%`;
+  }
+  // zero line
+  mk('line', { x1: ML, y1: Y(0), x2: W - MR, y2: Y(0), stroke: '#cbd5e1', 'stroke-width': 1, 'stroke-dasharray': '4 4' });
+  // month labels
+  [3, 6, 9, 12].forEach(m => {
+    const i = months.indexOf(m); if (i < 0) return;
+    const tx = mk('text', { x: X(i), y: H - 8, 'text-anchor': 'middle',
+      'font-family': 'Geist Mono, monospace', 'font-size': 11, fill: '#94a3b8' });
+    tx.textContent = m === 12 ? '1 year' : `${m}mo`;
+  });
+
+  const path = (qs, close) => {
+    const up = B(qs[0]).map((v, i) => `${i ? 'L' : 'M'} ${X(i).toFixed(1)} ${Y(v).toFixed(1)}`).join(' ');
+    if (!close) return up;
+    const dn = B(qs[1]).map((v, i) => `L ${X(B(qs[1]).length - 1 - i).toFixed(1)} ${Y(B(qs[1])[B(qs[1]).length - 1 - i]).toFixed(1)}`).join(' ');
+    return `${up} ${dn} Z`;
+  };
+  // one hue, two depths: 90% band then 50% band, then the median line
+  mk('path', { d: path(['95', '5'], true), fill: 'rgba(37,99,235,0.08)' });
+  mk('path', { d: path(['75', '25'], true), fill: 'rgba(37,99,235,0.18)' });
+  mk('path', { d: path(['50'], false), fill: 'none', stroke: '#2563eb',
+    'stroke-width': 2.25, 'stroke-linejoin': 'round', 'stroke-linecap': 'round' });
+
+  // terminal labels at the right edge
+  const lastI = months.length - 1;
+  [['95', 'best 5%'], ['50', 'median'], ['5', 'worst 5%']].forEach(([q, lab]) => {
+    const v = B(q)[lastI];
+    const tx = mk('text', { x: W - MR - 4, y: Y(v) + (q === '5' ? 12 : q === '95' ? -5 : -6),
+      'text-anchor': 'end', 'font-family': 'Geist Mono, monospace', 'font-size': 11,
+      fill: q === '50' ? '#2563eb' : '#94a3b8', 'font-weight': q === '50' ? 600 : 400 });
+    tx.textContent = `${lab} ${pct(v, 0)}`;
+  });
+
+  const t = mc.terminal_1yr_pct;
+  const cells = [
+    ['P(−20% drawdown, 6mo)', pctu(mc.p_dd20_6mo)],
+    ['P(down year)', pctu(mc.p_neg_1yr)],
+    ['1-yr median outcome', pct(parseFloat(t['50']))],
+    ['5th … 95th percentile', `${pct(parseFloat(t['5']), 0)} … ${pct(parseFloat(t['95']), 0)}`],
+  ];
+  if (mc.p_beat_bench_1yr != null) cells.push(['P(beat SPY, 1yr)', pctu(mc.p_beat_bench_1yr)]);
+  probs.innerHTML = cells.map(([k, v]) =>
+    `<div class="fan-prob"><div class="metric-label">${k}</div><div class="fan-prob-val">${v}</div></div>`).join('');
+}
+
+async function loadVerdict() {
+  try { VERDICT = await (await fetch('/static/verdict.json')).json(); }
+  catch (err) { document.getElementById('evidence').style.display = 'none'; return; }
+  const grid = document.getElementById('verdict-grid');
+  const order = ['champion', 'challenger', 'spy'];
+  grid.innerHTML = order.filter(k => VERDICT.books[k])
+    .map(k => verdictCard(VERDICT.books[k], k)).join('');
+  renderFan('champion');
+  document.getElementById('fan-btns').addEventListener('click', e => {
+    const btn = e.target.closest('button'); if (!btn) return;
+    document.querySelectorAll('#fan-btns button').forEach(b => b.classList.toggle('active', b === btn));
+    renderFan(btn.dataset.book);
   });
 }
 
 /* ── Boot ── */
 initGradient();
 initReveal();
-loadData();
+loadVerdict().then(loadData);
 window.addEventListener('resize', () => {
   const active = document.querySelector('#range-btns button.active');
   if (active && CHART.series.length) renderChart(active.dataset.range);

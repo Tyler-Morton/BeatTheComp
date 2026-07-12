@@ -4,6 +4,10 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Tyler Morton · Algorithmic Trading Bot</title>
+  <meta name="description" content="A live, autonomous trading system with a volatility-targeting risk overlay — every strategy graded by the same statistical referee: bootstrap confidence intervals, Deflated Sharpe, and Monte Carlo outcome distributions." />
+  <meta property="og:title" content="Tyler Morton · Algorithmic Trading Bot" />
+  <meta property="og:description" content="Live paper-traded bots vs the S&P 500, with an honest statistical verdict engine grading every strategy." />
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%230f172a'/%3E%3Cpath d='M7 21 L13 14 L18 17 L25 8' stroke='%232563eb' stroke-width='3' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Geist:wght@300;400;500;600;700;800&family=Geist+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
@@ -17,6 +21,7 @@
     <div class="nav-links">
       <a class="nav-link" href="#strategy">Strategy</a>
       <a class="nav-link" href="#performance">Performance</a>
+      <a class="nav-link" href="#evidence">Evidence</a>
       <a class="nav-link" href="https://github.com/Tyler-Morton/BeatTheComp" target="_blank" rel="noopener">GitHub</a>
       <a class="nav-btn" href="https://www.linkedin.com/in/tyler-t-morton" target="_blank" rel="noopener">LinkedIn</a>
     </div>
@@ -24,19 +29,19 @@
 
   <!-- HERO -->
   <header class="hero">
-    <canvas class="hero-canvas" id="gradient-canvas"></canvas>
+    <canvas class="hero-canvas" id="gradient-canvas" aria-hidden="true"></canvas>
     <div class="hero-inner">
       <div class="hero-content">
         <div class="hero-eyebrow"><span class="live-dot"></span><span id="hero-status">Live on Alpaca · since May 2026</span></div>
-        <h1 class="hero-title">Algorithmic Trading,<br />Built to <span>Lose Less</span></h1>
-        <p class="hero-sub">A 3x leveraged ETF portfolio wrapped in a volatility-targeting overlay, an ML crash throttle, and regime-aware rebalancing. It runs itself every morning, and its first job is capital preservation.</p>
+        <h1 class="hero-title">Algorithmic trading,<br />built to <span>lose less</span></h1>
+        <p class="hero-sub">A leveraged-ETF book wrapped in a volatility-targeting overlay and regime-aware rebalancing. It runs itself every morning, its first job is capital preservation, and every claim on this page is graded by the same statistical referee.</p>
         <div class="hero-actions">
-          <a class="btn btn-primary" href="#performance">View Performance</a>
-          <a class="btn btn-ghost" href="#strategy">How It Works</a>
+          <a class="btn btn-primary" href="#performance">View performance</a>
+          <a class="btn btn-ghost" href="#evidence">See the evidence</a>
         </div>
       </div>
       <div class="hero-badge" id="hero-badge">
-        <div class="badge-label">Portfolio Value</div>
+        <div class="badge-label">Portfolio value</div>
         <div class="badge-value" id="badge-value">···</div>
         <div class="badge-delta" id="badge-delta">···</div>
       </div>
@@ -46,7 +51,7 @@
   <!-- STATS STRIP -->
   <section class="stats-strip reveal" id="stats-strip">
     <div class="stat">
-      <div class="stat-label">Portfolio Value</div>
+      <div class="stat-label">Portfolio value</div>
       <div class="stat-value" id="stat-equity">···</div>
       <div class="stat-sub" id="stat-equity-sub">live · Alpaca</div>
     </div>
@@ -56,14 +61,14 @@
       <div class="stat-sub">since yesterday's close</div>
     </div>
     <div class="stat">
-      <div class="stat-label">Sharpe Ratio</div>
+      <div class="stat-label">Sharpe ratio</div>
       <div class="stat-value blue" id="stat-sharpe">···</div>
-      <div class="stat-sub">backtested</div>
+      <div class="stat-sub" id="stat-sharpe-sub">7.5-year simulation</div>
     </div>
     <div class="stat">
-      <div class="stat-label">Max Drawdown</div>
+      <div class="stat-label">Max drawdown</div>
       <div class="stat-value red" id="stat-maxdd">···</div>
-      <div class="stat-sub">with vol overlay</div>
+      <div class="stat-sub">simulated, with vol overlay</div>
     </div>
     <div class="stat">
       <div class="stat-label">Regime</div>
@@ -82,30 +87,31 @@
     <div class="bento reveal">
       <div class="bento-card tall">
         <div class="card-num">LAYER 01</div>
-        <div class="card-title">3x Leveraged ETFs</div>
-        <p class="card-desc">Holds TQQQ, UPRO, and UDOW: 3x leveraged Nasdaq, S&amp;P 500, and Dow. High upside capture, with a volatility-management layer on top to keep the risk in check.</p>
-        <span class="card-pill">TQQQ · UPRO · UDOW</span>
+        <div class="card-title">Regime-picked asset universe</div>
+        <p class="card-desc">A growth engine of leveraged tech ETFs (TQQQ, UPRO, SOXL, TECL) when the market is healthy, rotating toward gold, treasuries, and cash when it is not. A regime detector decides which team is on the field.</p>
+        <span class="card-pill">TQQQ · UPRO · SOXL · GLD · TLT</span>
       </div>
       <div class="bento-card">
         <div class="card-num">LAYER 02</div>
-        <div class="card-title">HRP Momentum</div>
-        <p class="card-desc">Hierarchical Risk Parity weights assets by momentum signal and correlation structure.</p>
+        <div class="card-title">HRP weighting</div>
+        <p class="card-desc">Hierarchical Risk Parity sizes positions by correlation structure instead of trusting noisy return forecasts.</p>
       </div>
       <div class="bento-card">
         <div class="card-num">LAYER 03</div>
-        <div class="card-title">Vol-Targeting Overlay</div>
+        <div class="card-title">Vol-targeting overlay</div>
         <p class="card-desc">Scales exposure toward a 20% annual-vol target and parks the rest in cash (SHV).</p>
         <span class="card-pill green">Live</span>
       </div>
       <div class="bento-card">
         <div class="card-num">LAYER 04</div>
-        <div class="card-title">ML Crash Throttle</div>
-        <p class="card-desc">A gradient-boosted classifier predicts drawdown probability and cuts size in turbulence.</p>
+        <div class="card-title">ML crash model</div>
+        <p class="card-desc">A gradient-boosted classifier estimates drawdown probability daily. Running observe-only until its live track record earns it the right to size trades.</p>
+        <span class="card-pill">Shadow mode</span>
       </div>
       <div class="bento-card wide">
         <div class="card-num">INFRASTRUCTURE</div>
         <div class="card-title">Fully autonomous</div>
-        <p class="card-desc">Runs every morning at 6:30 AM via GitHub Actions. It pulls data, re-optimizes, applies the risk overlays, and rebalances on Alpaca with zero manual intervention.</p>
+        <p class="card-desc">Runs every morning at 6:30 AM via GitHub Actions. It pulls data, re-optimizes, applies the risk overlays, and rebalances on Alpaca with zero manual intervention. Bad broker data can't trade: a $0-equity guard refuses to act on failed API reads.</p>
         <span class="card-pill">GitHub Actions · Alpaca · Python</span>
       </div>
     </div>
@@ -135,7 +141,7 @@
         </div>
       </div>
       <div class="chart-area" id="chart-area">
-        <svg class="equity-chart" id="equity-chart" viewBox="0 0 880 380" preserveAspectRatio="none"></svg>
+        <svg class="equity-chart" id="equity-chart" viewBox="0 0 880 380" preserveAspectRatio="none" role="img" aria-label="Portfolio value versus the S&P 500 over time"></svg>
         <div class="chart-crosshair" id="chart-crosshair"></div>
         <div class="chart-tooltip" id="chart-tooltip"></div>
       </div>
@@ -143,14 +149,14 @@
 
     <!-- Since-inception live metrics -->
     <div class="metrics-grid reveal" id="metrics-grid">
-      <div class="metric"><div class="metric-label">Total Return</div><div class="metric-value" id="m-total">···</div><div class="metric-sub">since inception</div></div>
+      <div class="metric"><div class="metric-label">Total return</div><div class="metric-value" id="m-total">···</div><div class="metric-sub">since inception</div></div>
       <div class="metric"><div class="metric-label">vs S&amp;P 500</div><div class="metric-value" id="m-alpha">···</div><div class="metric-sub">excess return</div></div>
-      <div class="metric"><div class="metric-label">Best Day</div><div class="metric-value" id="m-best">···</div><div class="metric-sub">single session</div></div>
-      <div class="metric"><div class="metric-label">Worst Day</div><div class="metric-value" id="m-worst">···</div><div class="metric-sub">single session</div></div>
-      <div class="metric"><div class="metric-label">Win Rate</div><div class="metric-value" id="m-win">···</div><div class="metric-sub">up sessions</div></div>
-      <div class="metric"><div class="metric-label">Days Live</div><div class="metric-value" id="m-days">···</div><div class="metric-sub">on Alpaca</div></div>
+      <div class="metric"><div class="metric-label">Best day</div><div class="metric-value" id="m-best">···</div><div class="metric-sub">single session</div></div>
+      <div class="metric"><div class="metric-label">Worst day</div><div class="metric-value" id="m-worst">···</div><div class="metric-sub">single session</div></div>
+      <div class="metric"><div class="metric-label">Win rate</div><div class="metric-value" id="m-win">···</div><div class="metric-sub">up sessions</div></div>
+      <div class="metric"><div class="metric-label">Days live</div><div class="metric-value" id="m-days">···</div><div class="metric-sub">on Alpaca</div></div>
       <div class="metric"><div class="metric-label">Rebalances</div><div class="metric-value" id="m-rebal">···</div><div class="metric-sub">orders executed</div></div>
-      <div class="metric"><div class="metric-label">Cash Sleeve</div><div class="metric-value" id="m-cash">···</div><div class="metric-sub">in SHV now</div></div>
+      <div class="metric"><div class="metric-label">Cash sleeve</div><div class="metric-value" id="m-cash">···</div><div class="metric-sub">in SHV now</div></div>
     </div>
   </section>
 
@@ -172,21 +178,21 @@
     <div class="section-head reveal">
       <div class="section-label">The Challenger</div>
       <h2 class="section-title">A second bot, racing the first</h2>
-      <p class="section-sub">A live A/B test on a separate $1,000 paper account. Same risk discipline, opposite bet: instead of leveraged tech under a 20% vol cap, the challenger runs a diversified three-sleeve book (trend-ramped core, defensive sectors, bonds and gold) under a 16% vol target. Whichever wins a month of live forward results becomes the main strategy.</p>
+      <p class="section-sub">A live A/B test on a separate $1,000 paper account. Same risk discipline, opposite bet: instead of leveraged tech under a 20% vol cap, the challenger runs a diversified three-sleeve book (defensive core, low-vol sectors, bonds and gold) under a 16% vol target. The verdict engine below grades both — live forward results decide which book earns the capital.</p>
     </div>
     <div class="numbers-row reveal">
       <div class="num-item">
-        <div class="num-label">Account Value</div>
+        <div class="num-label">Account value</div>
         <div class="num-value chal-accent" id="chal-equity">···</div>
         <div class="num-sub" id="chal-since">live · Alpaca</div>
       </div>
       <div class="num-item">
-        <div class="num-label">Since Start</div>
+        <div class="num-label">Since start</div>
         <div class="num-value" id="chal-return">···</div>
         <div class="num-sub" id="chal-days">forward, real fills</div>
       </div>
       <div class="num-item">
-        <div class="num-label">Vol Target</div>
+        <div class="num-label">Vol target</div>
         <div class="num-value" id="chal-vol">···</div>
         <div class="num-sub">vs 20% on the champion</div>
       </div>
@@ -198,34 +204,34 @@
     </div>
   </section>
 
-  <!-- BACKTEST NUMBERS -->
-  <section class="section" id="backtest">
+  <!-- EVIDENCE: the verdict engine -->
+  <section class="section" id="evidence">
     <div class="section-head reveal">
-      <div class="section-label">Backtest Results</div>
-      <h2 class="section-title">Validated out-of-sample</h2>
-      <p class="section-sub">Checked with purged, walk-forward cross-validation and the Deflated Sharpe Ratio (Bailey and López de Prado), which adjusts for how many strategy variants were tried so the edge is not just luck.</p>
+      <div class="section-label">Evidence</div>
+      <h2 class="section-title">Every strategy graded by the same referee</h2>
+      <p class="section-sub">A standalone verdict engine reruns each book through identical statistics: Sharpe confidence intervals from block bootstraps, a Deflated Sharpe Ratio penalized by every configuration ever tried (counted in a trial registry so K can't be fudged), and 10,000-path Monte Carlo outcome distributions. The labels are frozen at <b>confirmed</b>, <b>promising</b>, or <b>insufficient</b>, and no strategy grades its own homework. Killed ideas stay in the research journal next to the wins.</p>
     </div>
-    <div class="numbers-row reveal">
-      <div class="num-item">
-        <div class="num-label">Deflated Sharpe</div>
-        <div class="num-value accent" id="num-dsr">···</div>
-        <div class="num-sub">probability the edge is real</div>
+
+    <div class="verdict-grid reveal" id="verdict-grid">
+      <div class="verdict-skeleton"></div>
+      <div class="verdict-skeleton"></div>
+      <div class="verdict-skeleton"></div>
+    </div>
+
+    <div class="fan-wrap reveal">
+      <div class="chart-toolbar">
+        <div>
+          <div class="fan-title">One year forward, 10,000 simulated paths</div>
+          <div class="fan-sub" id="fan-sub">block-bootstrap Monte Carlo of realized daily returns · bands are the middle 50% and 90% of outcomes</div>
+        </div>
+        <div class="range-btns" id="fan-btns">
+          <button data-book="champion" class="active">Champion</button>
+          <button data-book="challenger">Challenger</button>
+        </div>
       </div>
-      <div class="num-item">
-        <div class="num-label">Sharpe Ratio</div>
-        <div class="num-value" id="num-sharpe">···</div>
-        <div class="num-sub">annualized, 11 configs tested</div>
-      </div>
-      <div class="num-item">
-        <div class="num-label">Vol Reduction</div>
-        <div class="num-value" id="num-vol">···</div>
-        <div class="num-sub">vs the raw 3x book</div>
-      </div>
-      <div class="num-item">
-        <div class="num-label">Max Drawdown</div>
-        <div class="num-value" id="num-dd">···</div>
-        <div class="num-sub">vs <span id="num-dd-raw">-71</span>% without the overlay</div>
-      </div>
+      <svg id="fan-chart" viewBox="0 0 880 330" preserveAspectRatio="none" class="fan-chart" role="img" aria-label="Monte Carlo fan chart of one-year forward outcomes"></svg>
+      <div class="fan-probs" id="fan-probs"></div>
+      <p class="fan-note">Monte Carlo resamples what actually happened, in 21-day blocks — it preserves fat tails and vol clustering, but it cannot imagine a crash worse than its sample. Read the tails accordingly. Paper trading; not investment advice.</p>
     </div>
   </section>
 
@@ -238,15 +244,15 @@
     </div>
     <div class="risk-grid reveal">
       <div class="risk-item">
-        <div class="risk-name">Vol-Targeting Overlay</div>
+        <div class="risk-name">Vol-targeting overlay</div>
         <p class="risk-desc">Continuously scales the book toward a constant 20% annual volatility, de-risking into turbulence and parking the excess in cash.</p>
       </div>
       <div class="risk-item">
-        <div class="risk-name">Drawdown Circuit Breaker</div>
+        <div class="risk-name">Drawdown circuit breaker</div>
         <p class="risk-desc">Halts trading if the account breaches a hard drawdown limit, with a guard against false triggers from broker timeouts.</p>
       </div>
       <div class="risk-item">
-        <div class="risk-name">Concentration Limit</div>
+        <div class="risk-name">Concentration limit</div>
         <p class="risk-desc">Caps any single position's weight so one name cannot dominate the book, while exempting the cash sleeve.</p>
       </div>
     </div>
