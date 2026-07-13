@@ -1,4 +1,23 @@
 {
-  "rungs": [],
-  "last_entry": {}
+  "rungs": [
+    {
+      "u": "IWM",
+      "exp": "2026-08-14",
+      "short_put": "IWM260814P00279000",
+      "long_put": "IWM260814P00276000",
+      "short_call": "IWM260814C00315000",
+      "long_call": "IWM260814C00317500",
+      "spk": 279.0,
+      "lpk": 276.0,
+      "sck": 315.0,
+      "lck": 317.5,
+      "qty": 12,
+      "credit": 0.66,
+      "maxloss": 2.34,
+      "entry": "2026-07-13"
+    }
+  ],
+  "last_entry": {
+    "IWM": "2026-07-13"
+  }
 }
