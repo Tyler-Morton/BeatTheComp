@@ -24,3 +24,4 @@ date,equity,contango,spy_iv,qqq_iv,iwm_iv,spy_rich,qqq_rich,iwm_rich,rungs,at_ri
 2026-07-10,100000.0,True,15.8,26.9,20.8,False,False,False,0,0,False,flat/hold: no action
 2026-07-10,100000.0,True,15.8,26.9,20.8,False,False,False,0,0,False,flat/hold: no action
 2026-07-13,100000.0,True,15.8,26.9,20.8,False,False,True,1,2808.0,False,IWM OPEN 12x credit 0.66 maxloss 2.34
+2026-07-13,99627.04,True,15.0,24.9,20.0,False,False,True,1,2808.0,False,flat/hold: no action
