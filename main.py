@@ -40,6 +40,8 @@ def _log_daily(row: dict) -> None:
         if write_header:
             w.writeheader()
         w.writerow(row)
+    logger.info("Logged daily row for %s -> %s (now %d bytes)",
+                row.get("date"), path.resolve(), path.stat().st_size)
 
 
 def _already_ran_today() -> bool:

@@ -90,7 +90,9 @@ def _apply_sentiment_bounds(
     for i, ticker in enumerate(tickers):
         if ticker not in sentiment:
             continue
-        score = sentiment[ticker].get("score", 0.0)
+        score = sentiment[ticker].get("score")
+        if score is None:          # sentiment couldn't be determined -> no adjustment
+            continue
         lo, hi = result[i]
         if score > 0.6:
             hi = min(hi + 0.05, 1.0)

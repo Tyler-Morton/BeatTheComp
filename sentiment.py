@@ -192,6 +192,6 @@ def run_sentiment_analysis(tickers: list[str]) -> dict[str, dict]:
     for ticker, data in results.items():
         logger.info(
             "Sentiment  %-6s  score=%.2f  conf=%.2f  %s",
-            ticker, data.get("score", 0.0), data.get("confidence", 0.0), data.get("summary", ""),
+            ticker, (data.get("score") or 0.0), (data.get("confidence") or 0.0), data.get("summary", ""),
         )
     return results
