@@ -17,7 +17,7 @@ from pathlib import Path
 
 import anthropic
 
-from config import SENTIMENT_LOG
+from config import SENTIMENT_LOG, SENTIMENT_ENABLED
 
 logger = logging.getLogger(__name__)
 
@@ -170,6 +170,12 @@ def run_sentiment_analysis(tickers: list[str]) -> dict[str, dict]:
     key_headlines}}. Tries the batch first, the sync fallback second, and if both
     blow up it just returns neutral scores so the pipeline can keep moving.
     """
+    if not SENTIMENT_ENABLED:
+        # Sentiment is turned off — return neutral for everything, no API calls.
+        # (Neutral scores have no effect on the optimizer, so the bot trades as
+        # if sentiment weren't there.)
+        return {t: _default_result() for t in tickers}
+
     api_key = os.getenv("ANTHROPIC_API_KEY")
     if not api_key:
         logger.error("ANTHROPIC_API_KEY not set — returning neutral sentiment")

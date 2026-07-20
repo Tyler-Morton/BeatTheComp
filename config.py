@@ -107,6 +107,11 @@ TRENDING_DISCOVERY_ENABLED = False   # OFF on purpose: LLM stock-discovery was u
                                      # Universe is now the fixed ASSETS + the WATCHLIST anchors.
 TRENDING_MAX_PICKS = 30          # how many names to pull each morning
 
+# Claude news-sentiment scoring (nudges optimizer position bounds by ticker).
+SENTIMENT_ENABLED = False   # OFF on purpose: added little measurable edge and was
+                            # the only remaining Anthropic API cost. With it off the
+                            # optimizer just sees neutral scores (i.e. no adjustment).
+
 # ── Log paths ────────────────────────────────────────────────────────────────
 DAILY_LOG = BASE_DIR / "daily_log.csv"
 SENTIMENT_LOG = BASE_DIR / "sentiment_log.csv"
