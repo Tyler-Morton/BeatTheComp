@@ -50,3 +50,4 @@ date,equity,contango,spy_iv,qqq_iv,iwm_iv,spy_rich,qqq_rich,iwm_rich,rungs,at_ri
 2026-07-23,99623.72,True,16.6,26.7,21.1,False,False,True,3,8205.0,False,flat/hold: no action
 2026-07-23,99681.72,True,16.6,26.7,21.1,False,False,True,3,8205.0,False,flat/hold: no action
 2026-07-24,99533.72,True,16.6,26.7,21.1,False,False,True,3,8205.0,False,flat/hold: no action
+2026-07-24,100038.72,True,18.7,28.1,22.6,False,False,True,3,8205.0,False,flat/hold: no action
