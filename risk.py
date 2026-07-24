@@ -19,6 +19,7 @@ from config import (
     ALERTS_LOG,
     DAILY_LOG,
     DRAWDOWN_CIRCUIT_BREAKER,
+    IMPLAUSIBLE_VALUE_FRAC,
     MAX_PORTFOLIO_VOL,
     MAX_SINGLE_WEIGHT,
     REBALANCE_DRIFT_THRESHOLD,
@@ -78,6 +79,18 @@ def check_drawdown(portfolio_value: float) -> tuple[bool, str]:
         return True, ""
     ath = pd.to_numeric(df["portfolio_value"], errors="coerce").max()
     if ath <= 0 or np.isnan(ath):
+        return True, ""
+    # Same idea as the <= 0 guard above, but for *small* garbage rather than zero.
+    # On 2026-07-07 the broker handed back $0.30 on a ~$950 book: positive, so it
+    # slipped past that guard and fired a bogus -100% breaker. A long-only ETF book
+    # cannot physically lose 95%+ overnight — a reading that low is a bad read, not
+    # a loss, and the real 30% breaker below still catches anything genuine.
+    if portfolio_value < IMPLAUSIBLE_VALUE_FRAC * ath:
+        logger.warning(
+            "Drawdown check skipped — portfolio value $%.2f is implausibly small "
+            "vs ATH $%.0f; treating as a bad broker read, not a real loss.",
+            portfolio_value, ath
+        )
         return True, ""
     drawdown = (portfolio_value - ath) / ath
     if drawdown < -DRAWDOWN_CIRCUIT_BREAKER:

@@ -52,8 +52,18 @@ jobs:
         run: |
           git config user.name  "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          # Include parquet cache so future rate-limited runs can fall back to it
-          git add *.csv alerts.log prices_cache.parquet 2>/dev/null || true
+          # Include parquet cache so future rate-limited runs can fall back to it.
+          # NOTE: these must be git-glob pathspecs, not shell globs. The old line
+          # named ignored files explicitly (alerts.log, and trending_raw.csv via the
+          # shell's *.csv), which makes `git add` exit non-zero — and on the runner's
+          # git 2.54 it staged NOTHING at all, so every daily row from 2026-07-07 on
+          # was written and then silently dropped ("Nothing to commit" while the log
+          # said it had just written the row). `2>/dev/null || true` hid the whole
+          # thing. Local git 2.50 still stages the valid paths, which is why this
+          # only broke in CI. `:(glob)` keeps `*` from crossing `/` (root-only, so we
+          # don't grab challenger/), and glob pathspecs skip ignored files silently
+          # instead of erroring — correct under either git version.
+          git add -A -- ':(glob)*.csv' ':(glob)*.parquet'
           git diff --cached --quiet && echo "Nothing to commit" && exit 0
           git commit -m "Daily log $(date -u '+%Y-%m-%d %H:%M UTC')"
           for i in 1 2 3; do

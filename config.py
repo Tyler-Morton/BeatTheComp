@@ -34,6 +34,7 @@ MAX_SINGLE_WEIGHT = 0.70         # let one position get as big as 70% — we wan
 MIN_SINGLE_WEIGHT = 0.0          # no floor; if something doesn't earn weight, it gets zero
 REBALANCE_DRIFT_THRESHOLD = 0.02 # only 2% of drift before we re-trade — keeps us close to target
 DRAWDOWN_CIRCUIT_BREAKER = 0.30  # don't hit the brakes until we're down 30% from the high
+IMPLAUSIBLE_VALUE_FRAC = 0.05    # an equity read below 5% of ATH is a broker glitch, not a loss
 MAX_PORTFOLIO_VOL = 0.90         # high ceiling on purpose — an all-3x-leveraged book naturally runs ~85% vol
 
 # ── Risk overlay (vol-targeting + optional ML throttle) ─────────────────────
