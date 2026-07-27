@@ -82,7 +82,11 @@ def market_data(stock) -> dict:
     near, far = _fred(C.TERM_NEAR), _fred(C.TERM_FAR)
     contango = float(near.iloc[-1]) < float(far.iloc[-1])
 
-    out = {"contango": contango, "term_near": float(near.iloc[-1]), "term_far": float(far.iloc[-1]), "u": {}}
+    # bars comes back out too: settling an expired rung needs the underlying's
+    # close on its expiry date, and refetching it separately would be a second
+    # API call for data we already have.
+    out = {"contango": contango, "term_near": float(near.iloc[-1]),
+           "term_far": float(far.iloc[-1]), "bars": bars, "u": {}}
     for u, ivname in C.UNDERLYINGS.items():
         ivs = near if ivname == C.TERM_NEAR else _fred(ivname)
         px = bars[u].dropna()
@@ -198,6 +202,58 @@ def log(row):
     df.to_csv(C.LOG_FILE, mode="a", header=not C.LOG_FILE.exists(), index=False)
 
 
+def settle_value(rung, bars):
+    """What an expired condor was actually worth, per contract. None if unknown.
+
+    The old code assumed anything past expiry expired worthless. That is only
+    true when the underlying finished between the short strikes — and when it
+    doesn't, the assumption books a max-profit win on what was really a loss.
+    The error is one-directional, so a sleeve that occasionally breaches would
+    have looked flawless in the record forever.
+
+    Iron condor value at expiry = whichever short leg finished in the money,
+    capped by its long wing:
+        put side  = clamp(spk - S, 0, spk - lpk)
+        call side = clamp(S - sck, 0, lck - sck)
+    """
+    exp = pd.Timestamp(rung["exp"]).normalize()
+    px = bars[rung["u"]].dropna()
+    on_or_before = px.index[px.index <= exp]
+    if len(on_or_before) == 0:
+        return None
+    S = float(px.loc[on_or_before[-1]])
+    put_side = min(max(rung["spk"] - S, 0.0), rung["spk"] - rung["lpk"])
+    call_side = min(max(S - rung["sck"], 0.0), rung["lck"] - rung["sck"])
+    return put_side + call_side, S
+
+
+def log_trade(rung, exit_cost, reason, spot=None):
+    """One row per closed condor: what it made, and why it ended.
+
+    realized_pnl is signed dollars: (credit taken in - cost to get out) x 100 x qty.
+    Deliberately a separate file from the daily log so condor P&L stays cleanly
+    separable from the VB-2 beta-parking overlay — the premium edge has to be
+    judgeable on its own, or the A/B is worthless.
+    """
+    credit, qty = rung.get("credit", 0.0), rung.get("qty", 0)
+    pnl = (credit - exit_cost) * 100 * qty
+    row = dict(
+        exit_date=str(date.today()), entry_date=rung.get("entry", ""),
+        u=rung["u"], exp=rung["exp"], qty=qty,
+        spk=rung["spk"], lpk=rung["lpk"], sck=rung["sck"], lck=rung["lck"],
+        credit=round(credit, 2), exit_cost=round(exit_cost, 2),
+        maxloss=rung.get("maxloss", ""),
+        realized_pnl=round(pnl, 2),
+        pct_of_credit=round(100 * (credit - exit_cost) / credit, 1) if credit else "",
+        spot_at_exit=round(spot, 2) if spot is not None else "",
+        reason=reason, dry_run=C.DRY_RUN)
+    if C.DRY_RUN:
+        print(f"  [DRY_RUN] would log trade: {rung['u']} {reason} pnl {pnl:+.2f}")
+        return
+    pd.DataFrame([row]).to_csv(C.TRADES_FILE, mode="a",
+                              header=not C.TRADES_FILE.exists(), index=False)
+
+
 def broker_option_positions(trade) -> int:
     try:
         return sum(1 for p in trade.get_all_positions()
@@ -223,7 +279,21 @@ def main():
     for rung in st["rungs"]:
         dte = (pd.Timestamp(rung["exp"]).date() - today).days
         if dte < 0:
-            notes.append(f"{rung['u']} rung expired-worthless")
+            settled = settle_value(rung, md["bars"])
+            if settled is None:
+                # No settlement price means we cannot say what this rung made.
+                # Holding it for manual review is the honest failure mode;
+                # dropping it silently is how the old code lost the P&L.
+                notes.append(f"{rung['u']} past expiry but no settlement price "
+                             f"— HOLDING for manual review")
+                kept.append(rung)
+                continue
+            cost, spot = settled
+            reason = "expiry-worthless" if cost == 0 else "expiry-ITM"
+            log_trade(rung, cost, reason, spot)
+            pnl = (rung["credit"] - cost) * 100 * rung["qty"]
+            notes.append(f"{rung['u']} {reason} (spot {spot:.2f}, "
+                         f"cost {cost:.2f}) pnl {pnl:+.0f}")
             continue
         try:
             val, _ = price_condor(opt, rung)
@@ -232,10 +302,16 @@ def main():
             kept.append(rung); continue
         if dte <= C.CLOSE_AT_DTE:
             submit(trade, rung, rung["qty"], opening=False)
-            notes.append(f"{rung['u']} expiry-close (dte {dte})")
+            # `val` is the current mid cost-to-close, i.e. what we pay to exit.
+            log_trade(rung, val, "expiry-close")
+            pnl = (rung["credit"] - val) * 100 * rung["qty"]
+            notes.append(f"{rung['u']} expiry-close (dte {dte}) pnl {pnl:+.0f}")
         elif val >= C.LOSS_STOP_MULT * rung["credit"] and val > 0:
             submit(trade, rung, rung["qty"], opening=False)
-            notes.append(f"{rung['u']} LOSS-STOP (value {val:.2f} vs credit {rung['credit']:.2f})")
+            log_trade(rung, val, "loss-stop")
+            pnl = (rung["credit"] - val) * 100 * rung["qty"]
+            notes.append(f"{rung['u']} LOSS-STOP (value {val:.2f} vs credit "
+                         f"{rung['credit']:.2f}) pnl {pnl:+.0f}")
         else:
             kept.append(rung)
     st["rungs"] = kept
@@ -277,7 +353,52 @@ def main():
         at_risk += new_risk
         notes.append(f"{u} OPEN {qty}x credit {credit:.2f} maxloss {maxloss:.2f}")
 
+    # 3) beta parking (VB-2): idle collateral -> SPY, reserve stays for margin
+    park_beta(trade, st, notes)
+
     _finish(equity, md, st, notes)
+
+
+def park_beta(trade, st, notes):
+    """Keep cash near the reserve; everything beyond it sits in SPY.
+
+    reserve = max(PARK_RESERVE_MULT x total-max-loss-at-risk, PARK_MIN_RESERVE).
+    Cash above the reserve buys SPY; if cash has fallen below it (a loss-stop hit,
+    or new rungs raised the reserve), trim SPY to refill. Small drifts are ignored.
+    """
+    if not C.BETA_PARK or C.DRY_RUN:
+        return
+    try:
+        from alpaca.trading.enums import OrderSide, TimeInForce
+        from alpaca.trading.requests import MarketOrderRequest
+
+        acct = trade.get_account()
+        cash = float(acct.cash)
+        at_risk = sum(r["maxloss"] * 100 * r["qty"] for r in st["rungs"])
+        reserve = max(C.PARK_RESERVE_MULT * at_risk, C.PARK_MIN_RESERVE)
+        excess = cash - reserve
+
+        if excess >= C.PARK_TRADE_MIN:
+            trade.submit_order(MarketOrderRequest(
+                symbol=C.PARK_SYMBOL, notional=round(excess, 2),
+                side=OrderSide.BUY, time_in_force=TimeInForce.DAY))
+            notes.append(f"beta-park: BUY {C.PARK_SYMBOL} ${excess:,.0f} "
+                         f"(reserve ${reserve:,.0f})")
+        elif excess <= -C.PARK_TRADE_MIN:
+            try:
+                pos_val = float(trade.get_open_position(C.PARK_SYMBOL).market_value)
+            except Exception:
+                pos_val = 0.0          # no SPY held — nothing to trim
+            trim = round(min(-excess, pos_val), 2)
+            if trim >= C.PARK_TRADE_MIN:
+                trade.submit_order(MarketOrderRequest(
+                    symbol=C.PARK_SYMBOL, notional=trim,
+                    side=OrderSide.SELL, time_in_force=TimeInForce.DAY))
+                notes.append(f"beta-park: SELL {C.PARK_SYMBOL} ${trim:,.0f} "
+                             f"(refill reserve ${reserve:,.0f})")
+    except Exception as exc:
+        # Parking is an enhancement, never a reason to fail the condor pipeline.
+        notes.append(f"beta-park failed (non-fatal): {type(exc).__name__}")
 
 
 def _finish(equity, md, st, notes):

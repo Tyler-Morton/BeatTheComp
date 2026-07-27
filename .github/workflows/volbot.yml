@@ -34,7 +34,14 @@ jobs:
         run: |
           git config user.name  "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add volbot/volbot_log.csv volbot/volbot_state.json 2>/dev/null || true
+          # `git add -A -- volbot/` instead of naming files: volbot_trades.csv
+          # does not exist until the first condor closes, and naming a missing
+          # path makes `git add` exit non-zero. Combined with the old
+          # `2>/dev/null || true` that would have silently committed NOTHING —
+          # the exact failure that cost the champion 17 days of daily rows
+          # (see rebalance.yml). -A on the directory picks up new files as they
+          # appear and skips __pycache__ (gitignored) on its own.
+          git add -A -- volbot/
           git diff --cached --quiet && echo "Nothing to commit" && exit 0
           git commit -m "VolBot log $(date -u '+%Y-%m-%d %H:%M UTC')"
           for i in 1 2 3; do

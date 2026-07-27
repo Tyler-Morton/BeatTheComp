@@ -43,6 +43,18 @@ WING_FRAC = 0.01          # wing width ~= 1% of spot (rounded to a listed strike
 LOSS_STOP_MULT = 2.0      # close a rung if cost-to-close >= this * credit received
 CLOSE_AT_DTE = 1          # ride to expiry; close at/under this DTE (dodge assignment)
 
+# ── BETA PARKING (VB-2, registered 2026-07-20) ────────────────────────────────
+# The account's idle option collateral buys SPY, so the book earns beta + the
+# premium overlay instead of premium on a pile of dead cash ("compete with SPY
+# by owning it and stacking the edge on top"). A cash reserve always stays
+# behind to collateralize the condors. Condor P&L stays fully separable in the
+# logs, so this does NOT contaminate the premium-edge evaluation.
+BETA_PARK = True
+PARK_SYMBOL = "SPY"
+PARK_RESERVE_MULT = 2.0     # keep cash >= this x total max-loss at risk...
+PARK_MIN_RESERVE = 10_000   # ...and never below this floor
+PARK_TRADE_MIN = 500        # ignore SPY adjustments smaller than this (no churn)
+
 # ── ENTRY FILTERS (per underlying, all must pass) ─────────────────────────────
 VRP_TERCILE = 0.66        # rich-vol gate: VRP (IV - 20d realized) in its top tercile
 VRP_LOOKBACK = 252        # rolling window for the VRP percentile
@@ -54,3 +66,8 @@ REQUIRE_CONTANGO = True   # market term structure not inverted (VIX < VIX3M)
 RISK_FREE = 0.04          # for the Black-Scholes delta calc used to pick strikes
 STATE_FILE = BASE / "volbot_state.json"
 LOG_FILE = BASE / "volbot_log.csv"
+# One row per CLOSED condor (not per day). volbot_log.csv is a daily snapshot and
+# cannot answer "did the premium edge actually show up?" — a rung's whole life
+# collapses into a free-text note and then disappears from state. This is the
+# per-trade ledger that makes the sleeve evaluable against the backtest.
+TRADES_FILE = BASE / "volbot_trades.csv"
