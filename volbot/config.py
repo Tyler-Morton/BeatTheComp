@@ -49,7 +49,23 @@ CLOSE_AT_DTE = 1          # ride to expiry; close at/under this DTE (dodge assig
 # by owning it and stacking the edge on top"). A cash reserve always stays
 # behind to collateralize the condors. Condor P&L stays fully separable in the
 # logs, so this does NOT contaminate the premium-edge evaluation.
-BETA_PARK = True
+# DEFERRED 2026-07-26 — the code is finished and correct; only the switch is off.
+#
+# Enabling it as written would have bought $85,331 of SPY on the 2026-07-27 run,
+# 86% of a $99,441 account. The comment above claims parking doesn't contaminate
+# the premium-edge evaluation because condor P&L stays separable in the logs.
+# That is true for ACCOUNTING (volbot_trades.csv isolates it) but NOT for RISK:
+# long SPY and short puts lose in the same event, so the two legs are additive on
+# the downside, not independent. At the time of deferral the short puts had only
+# ~4% cushion (IWM 279/278 vs spot 291.19, SPY 710 vs 738.90) and IWM had fallen
+# four sessions running. A 10% SPY move would have cost ~$8.5k on the park plus
+# ~$8.2k of condor max loss — about 17% of equity, with both legs maxing together.
+#
+# RE-ENABLE AFTER 2026-08-21, once the three open rungs (IWM 08-14, IWM 08-21,
+# SPY 08-21) have settled and volbot_trades.csv holds its first clean per-condor
+# P&L readings. Revisit sizing then — PARK_MAX_FRAC or PARK_SYMBOL="SHV" both
+# bound the correlated downside that the unbounded SPY version does not.
+BETA_PARK = False
 PARK_SYMBOL = "SPY"
 PARK_RESERVE_MULT = 2.0     # keep cash >= this x total max-loss at risk...
 PARK_MIN_RESERVE = 10_000   # ...and never below this floor
