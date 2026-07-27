@@ -12,9 +12,11 @@
       "sck": 315.0,
       "lck": 317.5,
       "qty": 12,
-      "credit": 0.66,
-      "maxloss": 2.34,
-      "entry": "2026-07-13"
+      "credit": 0.53,
+      "maxloss": 2.47,
+      "entry": "2026-07-13",
+      "credit_mid": 0.66,
+      "slippage": 0.13
     },
     {
       "u": "IWM",
@@ -28,9 +30,11 @@
       "sck": 314.0,
       "lck": 317.0,
       "qty": 13,
-      "credit": 0.75,
-      "maxloss": 2.25,
-      "entry": "2026-07-20"
+      "credit": 0.61,
+      "maxloss": 2.39,
+      "entry": "2026-07-20",
+      "credit_mid": 0.75,
+      "slippage": 0.14
     },
     {
       "u": "SPY",
@@ -44,9 +48,11 @@
       "sck": 793.0,
       "lck": 800.0,
       "qty": 4,
-      "credit": 0.82,
-      "maxloss": 6.18,
-      "entry": "2026-07-20"
+      "credit": 0.79,
+      "maxloss": 6.21,
+      "entry": "2026-07-20",
+      "credit_mid": 0.82,
+      "slippage": 0.03
     },
     {
       "u": "SPY",
@@ -60,9 +66,11 @@
       "sck": 785.0,
       "lck": 790.0,
       "qty": 4,
-      "credit": 0.9,
-      "maxloss": 6.1,
-      "entry": "2026-07-27"
+      "credit": 0.82,
+      "maxloss": 6.18,
+      "entry": "2026-07-27",
+      "credit_mid": 0.9,
+      "slippage": 0.08
     },
     {
       "u": "IWM",
@@ -76,9 +84,11 @@
       "sck": 313.0,
       "lck": 315.0,
       "qty": 12,
-      "credit": 0.51,
-      "maxloss": 2.49,
-      "entry": "2026-07-27"
+      "credit": 0.15,
+      "maxloss": 2.85,
+      "entry": "2026-07-27",
+      "credit_mid": 0.51,
+      "slippage": 0.36
     }
   ],
   "last_entry": {
