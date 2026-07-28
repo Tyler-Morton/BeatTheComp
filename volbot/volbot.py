@@ -277,8 +277,25 @@ def save_state(st):
 
 
 def log(row):
+    """One row per DAY, not per run.
+
+    volbot.yml fires several fallback crons and every one runs the full
+    pipeline — which is correct, because it lets a loss-stop fire intraday
+    rather than waiting for tomorrow. But each run also appended a row, so the
+    file held 56 rows across 20 dates. Any equity series built from it counted
+    the same session up to three times.
+
+    Replacing today's row keeps the latest state per session and makes the file
+    one observation per day. The per-condor ledger (volbot_trades.csv) is
+    append-only and unaffected — a closed rung is a real event, not a snapshot.
+    """
     df = pd.DataFrame([row])
-    df.to_csv(C.LOG_FILE, mode="a", header=not C.LOG_FILE.exists(), index=False)
+    if C.LOG_FILE.exists():
+        old = pd.read_csv(C.LOG_FILE)
+        if "date" in old.columns:
+            old = old[old["date"].astype(str) != str(row.get("date"))]
+        df = pd.concat([old, df], ignore_index=True)
+    df.to_csv(C.LOG_FILE, index=False)
 
 
 def settle_value(rung, bars):

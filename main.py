@@ -34,6 +34,23 @@ logger = logging.getLogger(__name__)
 
 def _log_daily(row: dict) -> None:
     path = Path(DAILY_LOG)
+    # Don't persist a portfolio value the account cannot physically have. Two
+    # bad broker reads are already baked into this file — $0.00 on 2026-06-08
+    # and $0.30 on 2026-07-07 — and they poison every return series computed
+    # from the column (a -99.97% day followed by a +303,000% one). risk.py
+    # already refuses to ACT on such a read; this stops us RECORDING it.
+    # Blank, not zero: we genuinely don't know the value, and a blank reads as
+    # NaN downstream instead of pretending to be an observation.
+    try:
+        pv = float(row.get("portfolio_value"))
+    except (TypeError, ValueError):
+        pv = float("nan")
+    if not (pv >= 50):                      # also catches NaN
+
+        logger.warning("Refusing to log implausible portfolio_value %r for %s — "
+                       "recording blank instead of a fake observation.",
+                       row.get("portfolio_value"), row.get("date"))
+        row = dict(row, portfolio_value="")
     write_header = not path.exists()
     with open(path, "a", newline="") as f:
         w = csv.DictWriter(f, fieldnames=list(row.keys()))

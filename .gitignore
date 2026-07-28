@@ -30,3 +30,6 @@ research/
 trending_raw.csv
 alerts.log
 backtest_results.png
+
+# local backups — must never reach the repo, and volbot.yml does `git add -A -- volbot/`
+*.bak
