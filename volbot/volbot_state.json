@@ -71,24 +71,6 @@
       "entry": "2026-07-27",
       "credit_mid": 0.9,
       "slippage": 0.08
-    },
-    {
-      "u": "IWM",
-      "exp": "2026-08-28",
-      "short_put": "IWM260828P00274000",
-      "long_put": "IWM260828P00271000",
-      "short_call": "IWM260828C00313000",
-      "long_call": "IWM260828C00315000",
-      "spk": 274.0,
-      "lpk": 271.0,
-      "sck": 313.0,
-      "lck": 315.0,
-      "qty": 12,
-      "credit": 0.15,
-      "maxloss": 2.85,
-      "entry": "2026-07-27",
-      "credit_mid": 0.51,
-      "slippage": 0.36
     }
   ],
   "last_entry": {
