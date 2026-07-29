@@ -431,6 +431,10 @@ def main():
 
     # 2) entries per underlying (cadence + rung cap + total-risk cap)
     at_risk = sum(r["maxloss"] * 100 * r["qty"] for r in st["rungs"])
+    if not getattr(C, "ENTRIES_ENABLED", True):
+        notes.append("entries halted (EXP-010 FAIL) — managing open rungs only")
+        _finish(equity, md, st, notes)
+        return
     for u, d in md["u"].items():
         if not d["passes"]:
             continue

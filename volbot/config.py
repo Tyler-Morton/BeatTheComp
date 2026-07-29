@@ -96,6 +96,27 @@ PARK_RESERVE_MULT = 2.0     # keep cash >= this x total max-loss at risk...
 PARK_MIN_RESERVE = 10_000   # ...and never below this floor
 PARK_TRADE_MIN = 500        # ignore SPY adjustments smaller than this (no churn)
 
+# ── ENTRIES HALTED 2026-07-28 (EXP-010) ───────────────────────────────────────
+# On real OPRA quotes over 2020-07 -> 2026-07 this sleeve LOSES money:
+#   ARM A (as-built)     -8.0%/yr, Sharpe -1.54, maxDD -40.6%
+#   ARM B (as-designed) -10.4%/yr, Sharpe -1.24, maxDD -49.0%
+# against a pre-registered bar of Sharpe >= 0.70. 334 condors, -$118/trade,
+# losing in 6 of 7 years.
+#
+# The premise is fine — 92% of condors that REACH EXPIRY win. The strategy dies
+# in the 46% that hit the 2x loss stop first, which executes at a median 2.25x
+# and mean 2.58x (max 14x) because the bot only checks daily. Even assuming
+# perfect 2.0x stops it is still negative, so the verdict does not rest on that.
+#
+# Per the pre-registered FAIL rule: do NOT tune. Every one of DTE, delta, wing
+# width, stop multiple and tercile becomes a free variable the moment we start,
+# and anything can be made to pass.
+#
+# MANAGEMENT STAYS ON. The 5 open rungs ride to their Aug 14-28 expiries so
+# volbot_trades.csv produces a live-money comparison against the backtest —
+# that data is already paid for in risk terms. Only NEW entries are stopped.
+ENTRIES_ENABLED = False
+
 # ── ENTRY FILTERS (per underlying, all must pass) ─────────────────────────────
 VRP_TERCILE = 0.66        # rich-vol gate: VRP (IV - 20d realized) in its top tercile
 VRP_LOOKBACK = 252        # rolling window for the VRP percentile
