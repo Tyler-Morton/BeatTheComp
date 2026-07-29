@@ -44,6 +44,17 @@ MAX_PORTFOLIO_VOL = 0.90         # high ceiling on purpose — an all-3x-leverag
 # vol ~53%->20% and max drawdown ~-71%->-24% while staying above SPY.
 RISK_OVERLAY_ENABLED = True
 OVERLAY_TARGET_VOL = 0.20        # annual vol to scale the book toward
+# How the overlay ESTIMATES risk. "trailing" = 40d realized stdev (lags the
+# market — the champion's one demonstrated structural weakness, seen twice in
+# June/July 2026). "har" = HAR-RV one-step-ahead forecast (Corsi 2009).
+#
+# A/B PASSED 2026-07-28 (research/harrv_spec.md): Sharpe 0.56 -> 0.59,
+# maxDD -28.07% -> -25.84%, vol 18.63% -> 17.18%, CAGR unchanged. Less exposure
+# in 10 of 11 drawdowns, more in none. Arm A reproduced the deployed sim exactly.
+#
+# STILL DEFAULTED OFF. Passing a backtest is not a reason to change a live bot
+# on the same day; flip this deliberately, not incidentally.
+OVERLAY_VOL_MODEL = "trailing"   # "trailing" | "har"
 OVERLAY_ML_ENABLED = False       # ML crash-throttle on top — OFF for now, enable after vol-target proves out live
 OVERLAY_ML_SHADOW = True         # SHADOW: compute the crash-prob daily and LOG what the throttle
                                  # WOULD do, without acting — builds the trust record for enabling it

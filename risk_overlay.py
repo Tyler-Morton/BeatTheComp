@@ -49,10 +49,76 @@ def portfolio_vol(returns: pd.DataFrame, weights: dict[str, float],
     return float(np.sqrt(var)) if var > 0 else 0.0
 
 
+def har_forecast(returns: pd.DataFrame, weights: dict[str, float],
+                 har_window: int = 500) -> float:
+    """One-step-ahead annualized vol from HAR-RV (Corsi 2009). 0.0 if unavailable.
+
+        RV_{t+1} = b0 + bd*RV_daily + bw*RV_weekly + bm*RV_monthly
+
+    on the CURRENT portfolio's daily returns, rolling OLS, causal throughout.
+    The 1/5/22 horizons are canonical — do NOT search them. Three coefficients
+    is the whole point: it captures vol clustering and multi-horizon persistence
+    without the fragility that makes fancier models fail out of sample.
+
+    Returns 0.0 (not a guess) when there isn't enough history, so the caller
+    falls back to the trailing estimator rather than to something invented.
+    """
+    cols = [t for t in weights if t in returns.columns and abs(weights[t]) > 1e-9]
+    if not cols:
+        return 0.0
+    w = np.array([weights[t] for t in cols], dtype=float)
+    if w.sum() <= 0:
+        return 0.0
+    w = w / w.sum()
+    # errstate: Apple's Accelerate BLAS raises a spurious "divide by zero
+    # encountered in matmul" on clean finite float64 input. Verified: inputs
+    # finite, output finite, warning bogus. Suppressed HERE ONLY, and paired
+    # with an explicit finiteness check below — never suppress a warning without
+    # replacing it with a real test.
+    with np.errstate(all="ignore"):
+        pr = returns[cols].fillna(0.0).values @ w
+    if not np.isfinite(pr).all():
+        return 0.0
+    if len(pr) < har_window + 30:
+        return 0.0
+    rv = pd.Series(pr ** 2)
+    X = pd.concat([rv, rv.rolling(5).mean(), rv.rolling(22).mean()], axis=1).dropna()
+    y = rv.shift(-1).reindex(X.index)
+    ok = y.notna()
+    X, y = X[ok], y[ok]
+    if len(X) < 60:
+        return 0.0
+    A = np.column_stack([np.ones(len(X.tail(har_window))), X.tail(har_window).values])
+    try:
+        beta, *_ = np.linalg.lstsq(A, y.tail(har_window).values, rcond=None)
+    except np.linalg.LinAlgError:
+        return 0.0
+    rv_hat = float(np.concatenate([[1.0], X.iloc[-1].values]) @ beta)
+    if not np.isfinite(rv_hat) or rv_hat <= 0:
+        return 0.0
+    return float(np.sqrt(rv_hat * TRADING_DAYS))
+
+
 def vol_target_scaler(returns: pd.DataFrame, weights: dict[str, float],
-                      target_vol: float = 0.20, window: int = 40) -> float:
-    """Scale factor in [0,1]: target_vol / realized_vol, capped at 1 (never lever up)."""
-    pv = portfolio_vol(returns, weights, window)
+                      target_vol: float = 0.20, window: int = 40,
+                      model: str | None = None) -> float:
+    """Scale factor in [0,1]: target_vol / estimated_vol, capped at 1 (never lever up).
+
+    `model` selects how vol is ESTIMATED — "trailing" (40d realized) or "har"
+    (forecast). Defaults to config.OVERLAY_VOL_MODEL. HAR falls back to trailing
+    whenever it can't produce a number, so a thin history degrades to today's
+    behaviour instead of to something arbitrary.
+    """
+    if model is None:
+        try:
+            from config import OVERLAY_VOL_MODEL as model
+        except Exception:
+            model = "trailing"
+    pv = 0.0
+    if model == "har":
+        pv = har_forecast(returns, weights)
+    if pv <= 1e-6:
+        pv = portfolio_vol(returns, weights, window)
     if pv <= 1e-6:
         return 1.0
     return float(np.clip(target_vol / pv, 0.0, 1.0))
