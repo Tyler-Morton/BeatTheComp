@@ -1,0 +1,2 @@
+date,obs_days,CHAMP_equity,CHAMP_vol,CHAMP_sharpe,CHALL_equity,CHALL_vol,CHALL_sharpe,VOLBOT_equity,VOLBOT_vol,VOLBOT_sharpe,corr_CHAMP_CHALL,corr_CHAMP_VOLBOT,corr_CHALL_VOLBOT,w_CHAMP,w_CHALL,w_VOLBOT,note
+2026-07-01,5,954.16,0.7573,-0.24,1035.58,0.2007,2.8,100000.0,,,,,,0.333,0.333,0.333,equal-weight fallback (only 5 common days < 20)

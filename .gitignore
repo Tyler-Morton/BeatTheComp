@@ -26,10 +26,22 @@ challenger/prices_cache.parquet
 # Research lab - local only, never pushed (experiments + journal)
 research/
 
+# Python course - personal learning scratch, not part of the project
+learn/
+
+# Working agreement / operating notes for Claude Code - local only
+CLAUDE.md
+
 # Write-only artifacts: generated each run, read by nothing (keep local)
 trending_raw.csv
 alerts.log
 backtest_results.png
+perf_report.png
+tracker.png
+vs_spy.png
+
+# Regenerable price cache (same treatment as the other *_cache.parquet files)
+perf_prices.parquet
 
 # local backups — must never reach the repo, and volbot.yml does `git add -A -- volbot/`
 *.bak
