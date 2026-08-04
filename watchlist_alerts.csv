@@ -89,3 +89,4 @@ timestamp,ticker,price,today_pct,mom_5d,sentiment_score,reason
 2026-06-10T13:31:23.750569,JLHL,25.49,-0.1087,-0.2599,0.65,single-day move -10.9%
 2026-06-10T13:31:23.750569,WST,328.51,-0.0184,0.0386,0.75,sentiment score +0.75
 2026-07-07T16:03:34.984669,PLTR,135.72,0.024,0.173,0.0,5d momentum +17.3%
+2026-08-04T13:31:12.860587,PLTR,149.44,0.1893,0.2097,0.0,single-day move +18.9%; 5d momentum +21.0%
