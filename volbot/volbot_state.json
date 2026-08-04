@@ -71,24 +71,6 @@
       "entry": "2026-07-27",
       "credit_mid": 0.9,
       "slippage": 0.08
-    },
-    {
-      "u": "QQQ",
-      "exp": "2026-08-28",
-      "short_put": "QQQ260828P00630000",
-      "long_put": "QQQ260828P00625000",
-      "short_call": "QQQ260828C00741000",
-      "long_call": "QQQ260828C00748000",
-      "spk": 630.0,
-      "lpk": 625.0,
-      "sck": 741.0,
-      "lck": 748.0,
-      "qty": 5,
-      "credit": 1.08,
-      "credit_mid": 1.2,
-      "slippage": 0.12,
-      "maxloss": 5.92,
-      "entry": "2026-07-28"
     }
   ],
   "last_entry": {
