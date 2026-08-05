@@ -53,24 +53,6 @@
       "entry": "2026-07-20",
       "credit_mid": 0.82,
       "slippage": 0.03
-    },
-    {
-      "u": "SPY",
-      "exp": "2026-08-28",
-      "short_put": "SPY260828P00703000",
-      "long_put": "SPY260828P00696000",
-      "short_call": "SPY260828C00785000",
-      "long_call": "SPY260828C00790000",
-      "spk": 703.0,
-      "lpk": 696.0,
-      "sck": 785.0,
-      "lck": 790.0,
-      "qty": 4,
-      "credit": 0.82,
-      "maxloss": 6.18,
-      "entry": "2026-07-27",
-      "credit_mid": 0.9,
-      "slippage": 0.08
     }
   ],
   "last_entry": {
