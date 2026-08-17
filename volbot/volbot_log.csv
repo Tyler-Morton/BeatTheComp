@@ -31,3 +31,4 @@ date,equity,contango,spy_iv,qqq_iv,iwm_iv,spy_rich,qqq_rich,iwm_rich,rungs,at_ri
 2026-08-10,99482.26,True,14.9,22.8,18.4,False,False,False,3.0,8555.0,False,entries halted (EXP-010 FAIL) — managing open rungs only
 2026-08-11,99574.26,True,15.5,23.0,19.2,False,False,False,3.0,8555.0,False,entries halted (EXP-010 FAIL) — managing open rungs only
 2026-08-12,99653.26,True,15.3,22.4,19.1,False,False,False,3.0,8555.0,False,entries halted (EXP-010 FAIL) — managing open rungs only
+2026-08-17,99811.26,True,14.6,21.2,17.6,False,False,False,2.0,5591.0,False,"IWM expiry-worthless (spot 305.09, cost 0.00) pnl +636; entries halted (EXP-010 FAIL) — managing open rungs only"

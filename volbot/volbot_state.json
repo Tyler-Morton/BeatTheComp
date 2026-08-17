@@ -2,24 +2,6 @@
   "rungs": [
     {
       "u": "IWM",
-      "exp": "2026-08-14",
-      "short_put": "IWM260814P00279000",
-      "long_put": "IWM260814P00276000",
-      "short_call": "IWM260814C00315000",
-      "long_call": "IWM260814C00317500",
-      "spk": 279.0,
-      "lpk": 276.0,
-      "sck": 315.0,
-      "lck": 317.5,
-      "qty": 12,
-      "credit": 0.53,
-      "maxloss": 2.47,
-      "entry": "2026-07-13",
-      "credit_mid": 0.66,
-      "slippage": 0.13
-    },
-    {
-      "u": "IWM",
       "exp": "2026-08-21",
       "short_put": "IWM260821P00278000",
       "long_put": "IWM260821P00275000",
