@@ -1,42 +1,5 @@
 {
-  "rungs": [
-    {
-      "u": "IWM",
-      "exp": "2026-08-21",
-      "short_put": "IWM260821P00278000",
-      "long_put": "IWM260821P00275000",
-      "short_call": "IWM260821C00314000",
-      "long_call": "IWM260821C00317000",
-      "spk": 278.0,
-      "lpk": 275.0,
-      "sck": 314.0,
-      "lck": 317.0,
-      "qty": 13,
-      "credit": 0.61,
-      "maxloss": 2.39,
-      "entry": "2026-07-20",
-      "credit_mid": 0.75,
-      "slippage": 0.14
-    },
-    {
-      "u": "SPY",
-      "exp": "2026-08-21",
-      "short_put": "SPY260821P00710000",
-      "long_put": "SPY260821P00703000",
-      "short_call": "SPY260821C00793000",
-      "long_call": "SPY260821C00800000",
-      "spk": 710.0,
-      "lpk": 703.0,
-      "sck": 793.0,
-      "lck": 800.0,
-      "qty": 4,
-      "credit": 0.79,
-      "maxloss": 6.21,
-      "entry": "2026-07-20",
-      "credit_mid": 0.82,
-      "slippage": 0.03
-    }
-  ],
+  "rungs": [],
   "last_entry": {
     "IWM": "2026-07-27",
     "SPY": "2026-07-27",
