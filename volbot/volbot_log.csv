@@ -38,3 +38,4 @@ date,equity,contango,spy_iv,qqq_iv,iwm_iv,spy_rich,qqq_rich,iwm_rich,rungs,at_ri
 2026-08-25,99921.26,True,15.8,22.7,19.7,False,False,False,0.0,0.0,False,entries halted (EXP-010 FAIL) — managing open rungs only
 2026-08-26,99921.26,True,15.4,21.8,19.2,False,False,False,0.0,0.0,False,entries halted (EXP-010 FAIL) — managing open rungs only
 2026-08-27,99921.26,True,15.2,21.4,19.0,False,False,False,0.0,0.0,False,entries halted (EXP-010 FAIL) — managing open rungs only
+2026-08-28,99921.26,True,15.2,21.4,19.0,False,False,False,0.0,0.0,False,entries halted (EXP-010 FAIL) — managing open rungs only
