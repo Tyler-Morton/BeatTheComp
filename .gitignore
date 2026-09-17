@@ -45,3 +45,4 @@ perf_prices.parquet
 
 # local backups — must never reach the repo, and volbot.yml does `git add -A -- volbot/`
 *.bak
+.claude/
