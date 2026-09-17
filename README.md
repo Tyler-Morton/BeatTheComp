@@ -1,12 +1,12 @@
 # IWillBeatS&P: Autonomous AI Portfolio Bot
 
-A fully autonomous, AI-driven portfolio system designed to beat the S&P 500 on a risk-adjusted basis. It runs unattended on GitHub Actions every morning: it fetches live market data, queries Claude for sentiment and trending-stock discovery, detects the prevailing market regime, picks the optimal strategy for that regime, applies a volatility-targeting risk overlay, places real orders through Alpaca, and logs everything back to the repo. Two front ends visualize it: a Streamlit operations dashboard and a public showcase web page.
+A fully autonomous, AI-driven portfolio system designed to beat the S&P 500 on a risk-adjusted basis. It runs unattended on GitHub Actions every morning: it fetches live market data, queries Claude for sentiment and trending-stock discovery, detects the prevailing market regime, picks the optimal strategy for that regime, applies a volatility-targeting risk overlay, places orders through Alpaca paper accounts, and logs everything back to the repo. Two front ends visualize it: a Streamlit operations dashboard and a public showcase web page.
 
-The repo actually runs **three live books as a forward experiment**: the original bot (the *champion*), a diversified 3-sleeve *challenger* on a second paper account racing it head-to-head, and *VolBot*, a market-neutral options sleeve selling volatility premium through laddered iron condors. Every book is graded by the same statistical referee (see *Evidence discipline* below) — live forward results, not backtests, decide which approach earns the capital.
+The repo runs **two live books as a forward experiment**: the original bot (the *champion*) and a diversified 3-sleeve *challenger* on a second paper account racing it head-to-head. Every book is graded by the same statistical referee (see *Evidence discipline* below) — live forward results, not backtests, decide which approach earns the capital. A third book, *VolBot* (a market-neutral options sleeve selling volatility premium through laddered iron condors), didn't survive to that stage: re-tested on six years of real option quotes, it failed its pre-registered bar, so new entries are halted and it holds no positions.
 
-Built solo, end to end: data pipeline, optimization math, LLM integration, broker integration, a quant risk overlay, CI/CD scheduling, and two custom front ends.
+Designed and built solo, with Claude Code as a coding assistant: data pipeline, optimization math, LLM integration, broker integration, a quant risk overlay, CI/CD scheduling, and two custom front ends.
 
-> **Status:** all three books live on Alpaca paper, rebalancing autonomously via GitHub Actions.
+> **Status:** champion and challenger live on Alpaca paper, rebalancing autonomously via GitHub Actions. VolBot entries halted after failing its real-quote test; no open positions.
 
 ---
 
@@ -49,9 +49,9 @@ Every book is graded by a standalone **verdict engine** — one referee, no stra
 - **10,000-path Monte Carlo** outcome distributions: P(−20% drawdown in 6 months), probability of a down year, probability of beating SPY
 - Frozen verdict labels: **CONFIRMED / PROMISING / INSUFFICIENT**
 
-Current honest grades: the challenger's 20-year edge is **CONFIRMED** (Sharpe CI excludes zero, DSR ~100%); the champion grades **INSUFFICIENT** on its shorter window after its K=11 penalty — which is exactly why the A/B exists. The showcase site displays these grades verbatim, including the unflattering one.
+Current honest grades: the challenger's 20-year backtested edge is **CONFIRMED** (Sharpe CI excludes zero, DSR ~100%); the champion grades **INSUFFICIENT** on its shorter window after its K=11 penalty — which is exactly why the A/B exists. The showcase site displays these grades verbatim, including the unflattering one.
 
-Research follows a pre-registration protocol: hypothesis and pass/fail bar written down *before* touching data, every variant counted toward K, and failed ideas killed and logged with the same care as wins. Recent kills include a HAR-RV volatility forecaster (reacted faster, still lost on risk-adjusted returns) and jobs-report-day de-risking (the premise itself tested false: NFP days show no excess volatility over 20 years). Most ideas die; that's the point.
+Research follows a pre-registration protocol: hypothesis and pass/fail bar written down *before* touching data, every variant counted toward K, and failed ideas killed and logged with the same care as wins. Kills include the first HAR-RV volatility forecaster (reacted faster, still lost on risk-adjusted returns; a re-specified v2 later passed), VolBot on real option quotes (92% of condors held to expiry won, but loss stops gapped well past their 2x trigger and it lost money in 6 of 7 years), and jobs-report-day de-risking (the premise itself tested false: NFP days show no excess volatility over 20 years). Most ideas die; that's the point.
 
 ---
 
@@ -82,7 +82,8 @@ challenger/                the A/B rival: diversified 3-sleeve book, 16% vol
                            target, own paper account, own daily Actions run
 volbot/                    market-neutral options sleeve: laddered SPY/QQQ/IWM
                            iron condors, sold only when vol is statistically
-                           rich and the term structure is calm
+                           rich and the term structure is calm (entries halted
+                           after failing its real-quote test)
 metabook/                  shadow capital allocator: equal-risk-contribution
                            weights across the three books (observe-only)
 ```
@@ -96,7 +97,7 @@ surface on the showcase page and in this README.)
 ## Notable engineering decisions
 
 - **Volatility targeting on leverage.** Holding 3x ETFs naked is a recipe for ruin. Wrapping them in a vol-targeting overlay keeps the upside capture while controlling the path, which is the difference between an interesting backtest and something you would actually run.
-- **Validate before trusting.** Nothing ships without passing out-of-sample tests. Standing rule: compute the Deflated Sharpe Ratio on every new candidate before believing its Sharpe. A leave-one-year-out CV caught a temporal-leakage bug that a naive per-ticker split had hidden behind a fake positive result.
+- **Validate before trusting.** New components don't ship without passing out-of-sample tests. Standing rule: compute the Deflated Sharpe Ratio on every new candidate before believing its Sharpe. A leave-one-year-out CV caught a temporal-leakage bug that a naive per-ticker split had hidden behind a fake positive result.
 - **3-phase broker rebalance.** Naive implementations submit sells and buys together and lose half the buys to "insufficient buying power" because settlement lags. This bot submits all sells, polls `buying_power` for up to 90s, then sizes each buy against live cash. Sells are capped at 99.5% of position value to avoid float-precision rejections on full liquidations.
 - **Cron resilience.** GitHub Actions' free-tier cron is unreliable (delays of 15 min to 3 hr are common). Solved with staggered cron entries through the morning plus a duplicate-run guard in `main.py`, so only the first successful run does work and the rest exit immediately.
 - **Drawdown false-trigger fix.** A broker timeout once returned an equity of $0, which the drawdown breaker read as a -100% crash. Fixed twice over: the breaker skips non-positive equity readings, and the pipeline now refuses to log *or* trade on them at all — a transient API hiccup can neither flatten the book nor poison the equity-curve history.
