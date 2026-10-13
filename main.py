@@ -190,6 +190,20 @@ def main() -> None:
                        f"would_mult={overlay_info['ml_shadow_mult']:.2f}")
             logger.info("ML crash-throttle (SHADOW, not applied): %s", ml_note)
 
+    # ── 5d. No sub-0.5% targets (C2) ───────────────────────────────────────────
+    # HRP_MOMENTUM leaves 0.2-0.3% crumbs in names it is rotating out of (e.g.
+    # QQQ/UPRO/TQQQ/GLD at 0.3% on 2026-10-13). On a ~$900 book that is a $2-3
+    # position: not a bet, just a future dust lot and an extra order. Fold them
+    # into the cash asset, the same MIN_WEIGHT rule the challenger already uses.
+    MIN_TARGET_WEIGHT = 0.005
+    crumbs = {t: w for t, w in target_weights.items()
+              if t != CASH_ASSET and 0 < w < MIN_TARGET_WEIGHT}
+    if crumbs:
+        target_weights = {t: w for t, w in target_weights.items() if t not in crumbs}
+        target_weights[CASH_ASSET] = target_weights.get(CASH_ASSET, 0.0) + sum(crumbs.values())
+        logger.info("Folded %d sub-%.1f%% targets into %s: %s", len(crumbs),
+                    MIN_TARGET_WEIGHT * 100, CASH_ASSET, sorted(crumbs))
+
     logger.info("Final target weights:")
     for ticker, w in sorted(target_weights.items(), key=lambda x: -x[1]):
         if w > 0.001:

@@ -205,6 +205,14 @@ def rebalance(target_weights: dict[str, float]) -> list[dict]:
         # We dump all the reductions before buying anything so the cash from
         # those sells is available to fund the buys a moment later.
         sell_syms = [s for s, d in diffs.items() if d < -MIN_ORDER_NOTIONAL]
+        # Dust sweep (C2): a held position with NO target is closed whatever its
+        # size. Sub-$1 lots never cleared the MIN_ORDER_NOTIONAL test above, so 28
+        # leftover lots ($14, 1.5% of equity, mostly ex-alpha-sleeve stocks) sat in
+        # the champion book indefinitely. close_position sells by qty, so the
+        # notional minimum does not apply (verify on paper: one dust lot first).
+        sell_syms += [s for s in current_dollars
+                      if s not in sell_syms and target_dollars.get(s, 0.0) == 0.0
+                      and current_qty.get(s, 0.0) > 0]
         for sym in sell_syms:
             diff = diffs[sym]
             try:

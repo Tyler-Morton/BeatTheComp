@@ -54,6 +54,8 @@ jobs:
           # Only challenger files — disjoint from the champion's commit set,
           # so concurrent runs can always rebase cleanly past each other.
           git add challenger/daily_log.csv challenger/live_prices.parquet 2>/dev/null || true
+          # separate add: a missing path would make the whole add above fail
+          git add challenger/base_state.json 2>/dev/null || true
           git diff --cached --quiet && echo "Nothing to commit" && exit 0
           git commit -m "Challenger log $(date -u '+%Y-%m-%d %H:%M UTC')"
           for i in 1 2 3; do

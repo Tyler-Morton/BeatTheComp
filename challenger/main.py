@@ -44,6 +44,7 @@ from risk_overlay import vol_target_scaler, portfolio_vol
 from sleeves import combined_weights, ALL_TICKERS, TARGET_VOL, CASH
 
 DAILY_LOG = HERE / "daily_log.csv"
+BASE_STATE = HERE / "base_state.json"   # sleeve weights frozen between month-ends (C2)
 PRICE_CACHE = HERE / "live_prices.parquet"
 MIN_WEIGHT = 0.005       # drop dust positions below 0.5%
 DRIFT = 0.02             # skip trading if nothing drifted more than 2%
@@ -91,6 +92,33 @@ def already_ran_today() -> bool:
         return False
 
 
+def monthly_base(px: pd.DataFrame) -> dict:
+    """Sleeve weights, recomputed ONCE per month, as challenger/backtest.py does.
+
+    The backtest recomputes combined_weights() only on month-end (BME) dates and
+    vol-scales daily. Live used to recompute the sleeves every morning, which made
+    the core QQQ/QLD ramp and the ballast inverse-vol split trade on daily noise:
+    live turnover 12.5x/yr vs 2.9x/yr tested (C2, 2026-10-13). Re-running the
+    backtest with daily recompute: CAGR 12.1% -> 11.4% at 3bp cost.
+    Freeze rule: reuse the stored base while the last price date is in the same
+    calendar month as when it was computed; the first run of a new month uses data
+    through the prior month's last close, i.e. the BME close, lagged one day.
+    """
+    month = px.index[-1].strftime("%Y-%m")
+    if BASE_STATE.exists():
+        try:
+            st = json.loads(BASE_STATE.read_text())
+            if st.get("month") == month and st.get("base"):
+                return st["base"]
+        except Exception:
+            pass
+    base = combined_weights(px)
+    BASE_STATE.write_text(json.dumps({"month": month, "computed_on": str(px.index[-1].date()),
+                                      "base": base}, indent=1))
+    print(f"Sleeve base recomputed for {month}")
+    return base
+
+
 def log_row(row: dict):
     df = pd.DataFrame([row])
     df.to_csv(DAILY_LOG, mode="a", header=not DAILY_LOG.exists(), index=False)
@@ -115,7 +143,7 @@ def main():
     # ── Signals -> sleeve weights -> vol-target scaling (same code as backtest) ──
     px = fetch_prices()
     print(f"Prices: {len(px)} days, through {px.index[-1].date()}")
-    base = combined_weights(px)
+    base = combined_weights(px) if dry else monthly_base(px)
     dr = px.pct_change(fill_method=None)
 
     risky = {t: v for t, v in base.items() if t != CASH}
