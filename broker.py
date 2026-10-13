@@ -209,7 +209,16 @@ def rebalance(target_weights: dict[str, float]) -> list[dict]:
             diff = diffs[sym]
             try:
                 current_val = current_dollars.get(sym, 0)
-                if _is_fractionable(tc, sym):
+                if target_dollars.get(sym, 0.0) < MIN_ORDER_NOTIONAL:
+                    # Full exit: close the whole position. The 99.5% notional cap
+                    # below exists for partial trims, but on an exit it left a
+                    # 0.5% dust position behind every time.
+                    order = tc.close_position(sym)
+                    orders_placed.append({"symbol": sym, "side": "sell",
+                                           "notional": round(current_val, 2),
+                                           "order_id": str(order.id)})
+                    logger.info("Order placed: CLOSE %s (~$%.2f)", sym, current_val)
+                elif _is_fractionable(tc, sym):
                     # Only ever sell up to 99.5% of what the position is worth. If
                     # we ask for 100% the rounding can land a hair over what we
                     # actually hold, and Alpaca rejects it with "insufficient qty."
@@ -251,23 +260,34 @@ def rebalance(target_weights: dict[str, float]) -> list[dict]:
             except Exception as exc:
                 logger.error("Sell failed for %s: %s", sym, exc)
 
-        # ── Step 2: wait for the sell cash to actually show up ───────────────
-        # Alpaca fills market orders fast, but the buying-power number can lag a
-        # few seconds behind. So we keep checking until either enough cash has
-        # landed or 30 seconds go by, whichever comes first.
-        if sell_syms:
+        # ── Step 2: wait for the sells themselves to finish ──────────────────
+        # Poll each sell ORDER until it reaches a final state, instead of
+        # guessing from buying power: the old "bp > 5× start" test fired on a
+        # partial settle and let the buys run against cash that hadn't landed,
+        # leaving part of the book unbought.
+        sell_ids = [o["order_id"] for o in orders_placed if o["side"] == "sell"]
+        if sell_ids:
             import time as _time
-            start_bp = float(tc.get_account().buying_power)
-            target_buys = sum(d for d in diffs.values() if d > MIN_ORDER_NOTIONAL)
+            final = {"filled", "canceled", "expired", "rejected", "done_for_day"}
+            pending = set(sell_ids)
             for _ in range(45):  # 45 tries × 2s each = 90 seconds, then we give up waiting
-                _time.sleep(2)
-                bp_now = float(tc.get_account().buying_power)
-                if bp_now >= target_buys * 0.95 or bp_now > start_bp * 5:
-                    logger.info("Sells settled — buying power now $%.2f", bp_now)
+                for oid in list(pending):
+                    try:
+                        status = str(tc.get_order_by_id(oid).status).split(".")[-1].lower()
+                    except Exception as exc:
+                        logger.warning("Could not read order %s: %s", oid, exc)
+                        continue
+                    if status in final:
+                        pending.discard(oid)
+                if not pending:
                     break
+                _time.sleep(2)
+            if pending:
+                logger.warning("%d of %d sells still open after 90s — buys will be "
+                               "sized to the cash that has landed", len(pending), len(sell_ids))
             else:
-                logger.warning("Sells still settling after 90s — buying power $%.2f (need $%.2f)",
-                               float(tc.get_account().buying_power), target_buys)
+                logger.info("All %d sells final — buying power now $%.2f",
+                            len(sell_ids), float(tc.get_account().buying_power))
 
         # ── Step 3: do the buying, sized to the cash we really have ──────────
         buy_syms = [s for s, d in diffs.items() if d > MIN_ORDER_NOTIONAL]

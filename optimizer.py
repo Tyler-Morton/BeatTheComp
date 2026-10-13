@@ -410,12 +410,18 @@ def select_strategy(regime: str, returns: pd.DataFrame | None = None) -> str:
     # HRP_MOMENTUM and don't get talked out of it by a hot streak somewhere else.
     margin = ADAPTIVE_OVERRIDE_MARGIN_RISK_ON if regime == "RISK_ON" else ADAPTIVE_OVERRIDE_MARGIN
 
-    # Switch away from the baseline only when the winner clears that bar.
-    if best_strat != baseline and best_score > baseline_score * (1.0 + margin):
+    # Switch away from the baseline only when the winner clears that bar. The bar
+    # is a gap measured against |baseline|: `baseline * (1 + margin)` flips sign
+    # when the baseline Sharpe is negative and LOWERS the bar exactly when every
+    # strategy is losing, so a rival at -0.9 "beat" a baseline at -1.0 by 15%.
+    # The 0.5 floor stops a near-zero baseline from making any rival a winner.
+    required_gap = margin * max(abs(baseline_score), 0.5)
+    if best_strat != baseline and best_score - baseline_score > required_gap:
         logger.info(
-            "ADAPTIVE OVERRIDE: %s (Sharpe %.2f) beats regime pick %s (Sharpe %.2f) by %.0f%%",
+            "ADAPTIVE OVERRIDE: %s (Sharpe %.2f) beats regime pick %s (Sharpe %.2f) "
+            "by %.2f (needed %.2f)",
             best_strat, best_score, baseline, baseline_score,
-            (best_score / baseline_score - 1) * 100 if baseline_score > 0 else 0,
+            best_score - baseline_score, required_gap,
         )
         return best_strat
 

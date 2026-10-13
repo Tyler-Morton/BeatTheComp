@@ -18,7 +18,7 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-from config import ASSETS, DAILY_LOG, TRENDING_DISCOVERY_ENABLED, WATCHLIST
+from config import ASSETS, CASH_ASSET, DAILY_LOG, TRENDING_DISCOVERY_ENABLED, WATCHLIST
 from data import fetch_prices, get_returns
 from optimizer import optimize, select_strategy
 from regime import detect_regime
@@ -203,7 +203,7 @@ def main() -> None:
         # (This is what wrote the phantom $0 equity row on 2026-06-08.)
         logger.error("Portfolio value unavailable (got %.2f) — aborting run, logging nothing",
                      portfolio_value)
-        return
+        sys.exit(2)
     current_weights = get_current_positions()
 
     all_passed, failures = run_all_checks(portfolio_value, asset_returns, target_weights)
@@ -223,7 +223,10 @@ def main() -> None:
             "notes": "; ".join(failures + ([ml_note] if ml_note else [])),
         })
         logger.warning("Pipeline aborted — risk checks failed.")
-        return
+        # Fail the run so GitHub Actions emails the owner. risk._alert only emails
+        # when EMAIL_USER/EMAIL_PASS are set, and they aren't, so every block so
+        # far happened silently. The log-commit step runs `if: always()`.
+        sys.exit(2)
 
     # ── 7. Is it even worth trading? Skip if we're already close enough ───────
     if not should_rebalance(current_weights, target_weights):
@@ -258,6 +261,14 @@ def main() -> None:
         orders.append(swept)
 
     # ── 9. Write down what happened so we can look back on it later ───────────
+    # Log what we actually HOLD after trading, not the target: when buying power
+    # ran short the old log claimed a fully invested book that didn't exist.
+    if swept:
+        import time as _time
+        _time.sleep(5)
+    held_weights = get_current_positions() or target_weights
+    shortfall = sum(max(0.0, w - held_weights.get(t, 0.0))
+                    for t, w in target_weights.items() if t != CASH_ASSET)
     _log_daily({
         "date": datetime.today().date(),
         "strategy": strategy,
@@ -267,9 +278,10 @@ def main() -> None:
         "expected_return": result["expected_annual_return"],
         "annual_vol": result["annual_volatility"],
         "orders_placed": len(orders),
-        "final_weights": json.dumps(target_weights),
+        "final_weights": json.dumps(held_weights),
         "notes": "; ".join(([ml_note] if ml_note else [])
-                           + (["cash_swept"] if swept else [])),
+                           + (["cash_swept"] if swept else [])
+                           + ([f"unfilled={shortfall:.1%}"] if shortfall > 0.02 else [])),
     })
 
     logger.info("Pipeline complete.")

@@ -431,7 +431,8 @@ def main():
 
     # 2) entries per underlying (cadence + rung cap + total-risk cap)
     at_risk = sum(r["maxloss"] * 100 * r["qty"] for r in st["rungs"])
-    if not getattr(C, "ENTRIES_ENABLED", True):
+    # Fail CLOSED: if the flag ever goes missing from config, don't open trades.
+    if not getattr(C, "ENTRIES_ENABLED", False):
         notes.append("entries halted (EXP-010 FAIL) — managing open rungs only")
         _finish(equity, md, st, notes)
         return

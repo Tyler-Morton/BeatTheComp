@@ -69,7 +69,7 @@ def _alpaca_download(tickers: list[str], start: str, end: str) -> pd.DataFrame:
     from alpaca.data.historical import StockHistoricalDataClient
     from alpaca.data.requests import StockBarsRequest
     from alpaca.data.timeframe import TimeFrame
-    from alpaca.data.enums import DataFeed
+    from alpaca.data.enums import Adjustment, DataFeed
 
     client = StockHistoricalDataClient(
         api_key=os.getenv("ALPACA_API_KEY"),
@@ -82,6 +82,10 @@ def _alpaca_download(tickers: list[str], start: str, end: str) -> pd.DataFrame:
         start=datetime.strptime(start, "%Y-%m-%d"),
         end=datetime.strptime(end, "%Y-%m-%d") - timedelta(minutes=20),  # the IEX feed is ~15min delayed, so back off 20 to be safe
         feed=DataFeed.IEX,
+        # Without this Alpaca returns RAW prices, so a split shows up as a crash:
+        # VGT's 8:1 split read as a -87.5% day and TQQQ's 2:1 as -50%, which
+        # poisoned every covariance and momentum number built on top.
+        adjustment=Adjustment.ALL,
     )
     bars = client.get_stock_bars(req).df
     if bars.empty:
@@ -101,7 +105,24 @@ def _alpaca_download(tickers: list[str], start: str, end: str) -> pd.DataFrame:
             logger.warning("No Alpaca data for %s — skipping", t)
     if not frames:
         raise RuntimeError("No tickers retrievable from Alpaca")
-    return pd.DataFrame(frames).ffill().dropna(how="all")
+    prices = pd.DataFrame(frames).ffill().dropna(how="all")
+    _check_for_split_artifacts(prices, "Alpaca")
+    return prices
+
+
+# Bigger than any real one-day move in the universe (TQQQ's worst day, Mar 2020,
+# was about -35%). A move past this is a split or a bad bar, not a market.
+MAX_PLAUSIBLE_DAILY_MOVE = 0.45
+
+
+def _check_for_split_artifacts(prices: pd.DataFrame, source: str) -> None:
+    """Refuse a price table that contains a split-sized one-day jump."""
+    moves = prices.pct_change().abs().max()
+    bad = moves[moves > MAX_PLAUSIBLE_DAILY_MOVE]
+    if not bad.empty:
+        raise RuntimeError(
+            f"{source} prices have implausible one-day moves (split or bad bar?): "
+            + ", ".join(f"{t} {m:.0%}" for t, m in bad.items()))
 
 
 def _yfinance_download(
