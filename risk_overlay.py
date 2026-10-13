@@ -82,10 +82,14 @@ def har_forecast(returns: pd.DataFrame, weights: dict[str, float],
     if len(pr) < har_window + 30:
         return 0.0
     rv = pd.Series(pr ** 2)
-    X = pd.concat([rv, rv.rolling(5).mean(), rv.rolling(22).mean()], axis=1).dropna()
-    y = rv.shift(-1).reindex(X.index)
+    feats = pd.concat([rv, rv.rolling(5).mean(), rv.rolling(22).mean()], axis=1).dropna()
+    # Forecast from TODAY's features. Fitting needs a known next-day RV, so the
+    # newest row is dropped from the fit — the old code then forecast from the
+    # filtered frame's last row, i.e. one day stale (found by EXP-019).
+    x_today = feats.iloc[-1].values
+    y = rv.shift(-1).reindex(feats.index)
     ok = y.notna()
-    X, y = X[ok], y[ok]
+    X, y = feats[ok], y[ok]
     if len(X) < 60:
         return 0.0
     A = np.column_stack([np.ones(len(X.tail(har_window))), X.tail(har_window).values])
@@ -93,7 +97,7 @@ def har_forecast(returns: pd.DataFrame, weights: dict[str, float],
         beta, *_ = np.linalg.lstsq(A, y.tail(har_window).values, rcond=None)
     except np.linalg.LinAlgError:
         return 0.0
-    rv_hat = float(np.concatenate([[1.0], X.iloc[-1].values]) @ beta)
+    rv_hat = float(np.concatenate([[1.0], x_today]) @ beta)
     if not np.isfinite(rv_hat) or rv_hat <= 0:
         return 0.0
     return float(np.sqrt(rv_hat * TRADING_DAYS))
