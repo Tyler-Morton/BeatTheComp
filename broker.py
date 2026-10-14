@@ -1,8 +1,8 @@
 """Everything that talks to Alpaca lives here.
 
-The nice part: paper trading and real-money trading run the exact same code.
-The only thing that decides which one you're on is the ALPACA_BASE_URL env var,
-so flipping to live money is a one-line change (and nothing else has to move).
+PAPER ONLY. config.PAPER_TRADING_MODE is a hard guard: the trading client is
+always built with paper=True, and a non-paper ALPACA_BASE_URL makes it refuse to
+start rather than quietly trade real money.
 """
 
 import logging
@@ -20,20 +20,32 @@ _fractionable_cache: dict[str, bool] = {}
 MIN_ORDER_NOTIONAL = 1.0   # Alpaca won't take an order smaller than about a dollar
 
 
+def _require_paper() -> bool:
+    """Hard PAPER guard. Returns True or raises — there is no live path.
+
+    This used to derive paper/live from ALPACA_BASE_URL, so setting that env var
+    to the live endpoint would have moved real money with no code change. All
+    accounts are paper by standing rule; flipping that must be a code change.
+    """
+    from config import PAPER_TRADING_MODE
+    base_url = os.getenv("ALPACA_BASE_URL", "https://paper-api.alpaca.markets")
+    if PAPER_TRADING_MODE is not True or "paper" not in base_url.lower():
+        raise RuntimeError(
+            f"PAPER guard: refusing to trade (PAPER_TRADING_MODE={PAPER_TRADING_MODE!r}, "
+            f"ALPACA_BASE_URL={base_url!r}). All accounts are paper.")
+    return True
+
+
 def _trading_client():
     global _client
     if _client is None:
         from alpaca.trading.client import TradingClient
-        # The base URL is the only thing that decides paper vs. live. Change it
-        # in one place and the whole bot moves to real money — nothing else here cares.
-        base_url = os.getenv("ALPACA_BASE_URL", "https://paper-api.alpaca.markets")
-        is_paper = "paper" in base_url.lower()
         _client = TradingClient(
             api_key=os.getenv("ALPACA_API_KEY", ""),
             secret_key=os.getenv("ALPACA_SECRET_KEY", ""),
-            paper=is_paper,
+            paper=_require_paper(),
         )
-        logger.info("Alpaca client initialized (%s)", "paper" if is_paper else "LIVE")
+        logger.info("Alpaca client initialized (paper)")
     return _client
 
 
@@ -193,7 +205,11 @@ def rebalance(target_weights: dict[str, float]) -> list[dict]:
                 current_dollars[p.symbol] = float(p.market_value)
                 current_qty[p.symbol] = float(p.qty)
         except Exception as exc:
-            logger.warning("Could not fetch positions: %s", exc)
+            # Do NOT carry on with an empty book: every diff would then be the
+            # full target, and the buy loop would re-buy positions we already
+            # hold (on margin, since buying power was the only cap).
+            logger.error("Could not fetch positions: %s — aborting rebalance", exc)
+            return []
 
         # Compute diffs once
         diffs = {
@@ -305,7 +321,11 @@ def rebalance(target_weights: dict[str, float]) -> list[dict]:
             try:
                 # Check the cash again before every single buy. If one order eats
                 # more than expected, the next one won't blindly overdraw and fail.
-                bp = float(tc.get_account().buying_power)
+                # min(cash, buying_power): buying_power alone includes MARGIN, so
+                # with sells still pending the buys borrowed instead of being
+                # "sized to the cash that has landed". Same rule as sweep_idle_cash.
+                acct = tc.get_account()
+                bp = min(float(acct.cash), float(acct.buying_power))
                 if bp < MIN_ORDER_NOTIONAL:
                     logger.warning("Out of buying power, skipping remaining buys")
                     break
