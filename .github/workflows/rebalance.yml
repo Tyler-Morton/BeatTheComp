@@ -77,3 +77,34 @@ jobs:
             sleep 5
           done
           [ "$pushed" = 1 ] || { echo "::error::Could not push logs after 3 attempts"; exit 1; }
+
+      # ── V3 paper shadow (EXP-024/027): READ-ONLY, runs strictly after the champion ──
+      # It runs after the champion's logs are already committed and pushed, it gets NO
+      # secrets (no Alpaca keys, so it cannot trade even in principle), and it is
+      # continue-on-error with a timeout, so a shadow crash, hang or push failure can
+      # never block or alter the champion. It reads the prices_cache.parquet and
+      # daily_log.csv the champion wrote this run, and writes only shadow_v3_log.csv and
+      # shadow_v3_state.json. It skips itself on days the champion logged no row (market
+      # closed, duplicate cron firing) and when it has already logged today.
+      - name: V3 paper shadow (read-only, no orders)
+        if: ${{ !cancelled() }}
+        continue-on-error: true
+        timeout-minutes: 15
+        run: |
+          python shadow_v3.py
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          # Add each file only if it exists: a missing pathspec makes `git add` fatal.
+          for f in shadow_v3_log.csv shadow_v3_state.json; do
+            if [ -e "$f" ]; then git add -- "$f"; fi
+          done
+          git diff --cached --quiet && echo "Nothing to commit" && exit 0
+          git commit -m "Shadow V3 log $(date -u '+%Y-%m-%d %H:%M UTC')"
+          pushed=0
+          for i in 1 2 3; do
+            if git pull --rebase origin main && git push; then pushed=1; break; fi
+            git rebase --abort 2>/dev/null || true
+            echo "Push attempt $i failed, retrying in 5s..."
+            sleep 5
+          done
+          [ "$pushed" = 1 ] || { echo "::error::Could not push shadow log after 3 attempts"; exit 1; }

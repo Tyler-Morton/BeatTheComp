@@ -127,6 +127,23 @@ surface on the showcase page and in this README.)
 
 All three are then passed through the volatility-targeting overlay before any order is placed.
 
+### V3 paper shadow (read-only)
+
+`shadow_v3.py` runs a hypothetical variant of the champion, "V3", next to it every trading day. It places no orders. V3 is the champion's own code with two changes:
+
+1. **Monthly re-decision.** Regime detection, strategy selection and the optimizer run only on the first session of each month. The overlay scaler, risk checks and 2% drift rule still run every day.
+2. **30% cap on 3x ETFs.** After the overlay, total TQQQ + UPRO + SOXL + TECL target weight is capped at 30%, with the excess moved to SHV.
+
+On a pre-registered backtest over the sealed 2011–2018 window, V3 passed all its gates: turnover was 11×/yr against 72×/yr, the 1% expected shortfall was about 35% smaller, and max drawdown was shallower. It was **not** shown to beat the champion on Sharpe. That result authorises only this shadow. Any switch needs a separate pre-registered live-vs-shadow check after at least 60 sessions, plus the owner's sign-off.
+
+**How it runs.** The workflow runs the shadow as its own step after the champion's logs are committed. That step gets no secrets and is `continue-on-error`, so it can't block or change the champion.
+
+- **Inputs:** the `prices_cache.parquet` the champion just fetched, and the champion's equity from `daily_log.csv`.
+- **Equity:** starts at the champion's equity on the first day and is marked with the same close-to-close convention as live. Trades cost 5 bp per $ traded, and SHV earns its actual return.
+- **Outputs:** state goes to `shadow_v3_state.json` (written atomically), and one row per day goes to `shadow_v3_log.csv`: regime, strategy, target weights, 3x weight before and after the cap, scaler, shadow and champion equity, and turnover.
+
+Tests check that the shadow never touches the broker and that the champion's targets are byte-identical with and without the shadow loaded.
+
 ---
 
 ## Universe
