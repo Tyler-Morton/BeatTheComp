@@ -48,12 +48,14 @@ OVERLAY_TARGET_VOL = 0.20        # annual vol to scale the book toward
 # market — the champion's one demonstrated structural weakness, seen twice in
 # June/July 2026). "har" = HAR-RV one-step-ahead forecast (Corsi 2009).
 #
-# A/B PASSED 2026-07-28 (research/harrv_spec.md): Sharpe 0.56 -> 0.59,
-# maxDD -28.07% -> -25.84%, vol 18.63% -> 17.18%, CAGR unchanged. Less exposure
-# in 10 of 11 drawdowns, more in none. Arm A reproduced the deployed sim exactly.
-#
-# STILL DEFAULTED OFF. Passing a backtest is not a reason to change a live bot
-# on the same day; flip this deliberately, not incidentally.
+# STATUS (corrected 2026-10-13): HAR is NOT validated. EXP-014's A/B "PASS"
+# (2026-07-28, Sharpe 0.56 -> 0.59) is UNREPLICATED: EXP-019 (clean replication
+# on forecast loss) FAILED, and found the HAR tested in 014 forecast from
+# yesterday's features (a one-day-stale bug, since fixed in risk_overlay).
+# Also: "har" needs >= 530 rows of returns and main.py supplies ~235, so it
+# could never have run live — vol_target_scaler now RAISES rather than quietly
+# falling back to trailing. Do not flip this without a new passing experiment
+# AND a longer price history in main.py.
 OVERLAY_VOL_MODEL = "trailing"   # "trailing" | "har"
 OVERLAY_ML_ENABLED = False       # ML crash-throttle on top — OFF for now, enable after vol-target proves out live
 OVERLAY_ML_SHADOW = True         # SHADOW: compute the crash-prob daily and LOG what the throttle

@@ -26,6 +26,7 @@ logger = logging.getLogger(__name__)
 
 TRADING_DAYS = 252
 RISK_FREE_RATE = 0.045
+HAR_MIN_ROWS = 500 + 30          # har_forecast's default har_window + 30
 
 
 # ── Vol targeting (the workhorse) ────────────────────────────────────────────
@@ -118,9 +119,19 @@ def vol_target_scaler(returns: pd.DataFrame, weights: dict[str, float],
             from config import OVERLAY_VOL_MODEL as model
         except Exception:
             model = "trailing"
+    if model not in ("trailing", "har"):
+        raise ValueError(f"Unknown vol model {model!r} (expected 'trailing' or 'har')")
     pv = 0.0
     if model == "har":
         pv = har_forecast(returns, weights)
+        if pv <= 1e-6 and len(returns) < HAR_MIN_ROWS:
+            # LOUD, not a silent fallback. HAR needs har_window+30 = 530 rows and
+            # main.py hands the overlay ~235 (fetch_prices lookback 252 calendar-
+            # padded), so "har" in production used to be trailing vol under
+            # another name. Selecting it now fails until the history is there.
+            raise RuntimeError(
+                f"OVERLAY_VOL_MODEL='har' needs >= {HAR_MIN_ROWS} rows of returns, "
+                f"got {len(returns)}; it would silently run as trailing vol")
     if pv <= 1e-6:
         pv = portfolio_vol(returns, weights, window)
     if pv <= 1e-6:
