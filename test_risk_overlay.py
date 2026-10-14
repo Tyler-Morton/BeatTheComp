@@ -6,11 +6,27 @@ These verify the overlay scales weights correctly, parks cash, degrades graceful
 when the ML can't run, and that the live bot's risk checks still behave.
 """
 
+import os
+import tempfile
+from pathlib import Path
+
 import numpy as np
 import pandas as pd
 
+import config
+import risk
 import risk_overlay as ro
 from risk import check_concentration
+
+# A tripped check calls risk._alert, which appends to the PRODUCTION alerts.log
+# (and emails if EMAIL_USER/EMAIL_PASS are set). Before this redirect, every local
+# run of the TQQQ-78% case below wrote "Concentration breach: TQQQ at 78.0% > 70.0%"
+# into the real log (2026-07-28 x2, 2026-10-13), which the 2026-10-13 desk report
+# then read as a live breach. Tests must never write the live alert channel.
+_PROD_ALERTS_LOG = Path(config.ALERTS_LOG)
+risk.ALERTS_LOG = Path(tempfile.gettempdir()) / "test_risk_overlay_alerts.log"
+os.environ.pop("EMAIL_USER", None)
+os.environ.pop("EMAIL_PASS", None)
 
 
 def _synthetic_returns(vol_annual: float, n: int = 120, cols=("TQQQ", "SOXL", "TECL")):
@@ -89,6 +105,17 @@ def test_concentration_exempts_cash():
     bad, _ = check_concentration({"TQQQ": 0.78, "SHV": 0.22})
     assert not bad, "a 78% stock should still trip the cap"
     print("  ✓ concentration check exempts SHV cash, still catches real over-concentration")
+
+
+def test_tripped_checks_do_not_touch_production_alert_log():
+    def _stat(p):
+        return (p.stat().st_size, p.stat().st_mtime_ns) if p.exists() else None
+    before = _stat(_PROD_ALERTS_LOG)
+    bad, _ = check_concentration({"TQQQ": 0.78, "SHV": 0.22})
+    assert not bad
+    assert _stat(_PROD_ALERTS_LOG) == before, "a unit test wrote the live alerts.log"
+    assert risk.ALERTS_LOG != _PROD_ALERTS_LOG
+    print("  ✓ tripped checks write a temp alert log, not the production one")
 
 
 if __name__ == "__main__":
