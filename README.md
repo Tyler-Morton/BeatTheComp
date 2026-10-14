@@ -1,6 +1,6 @@
 # IWillBeatS&P: Autonomous AI Portfolio Bot
 
-A fully autonomous, AI-driven portfolio system designed to beat the S&P 500 on a risk-adjusted basis. It runs unattended on GitHub Actions every morning: it fetches live market data, queries Claude for sentiment and trending-stock discovery, detects the prevailing market regime, picks the optimal strategy for that regime, applies a volatility-targeting risk overlay, places orders through Alpaca paper accounts, and logs everything back to the repo. Two front ends visualize it: a Streamlit operations dashboard and a public showcase web page.
+A fully autonomous, AI-driven portfolio system designed to beat the S&P 500 on a risk-adjusted basis. It runs unattended on GitHub Actions every morning: it fetches live market data, queries Claude for sentiment and trending-stock discovery, detects the prevailing market regime, picks the optimal strategy for that regime, applies a volatility-targeting risk overlay, places orders through Alpaca paper accounts, and logs everything back to the repo. Two front ends visualize it: a Streamlit operations dashboard and a read-only trading-desk web dashboard.
 
 The repo runs **two live books as a forward experiment**: the original bot (the *champion*) and a diversified 3-sleeve *challenger* on a second paper account racing it head-to-head. Every book is graded by the same statistical referee (see *Evidence discipline* below) — live forward results, not backtests, decide which approach earns the capital. A third book, *VolBot* (a market-neutral options sleeve selling volatility premium through laddered iron condors), didn't survive to that stage: re-tested on six years of real option quotes, it failed its pre-registered bar, so new entries are halted and it holds no positions.
 
@@ -49,7 +49,7 @@ Every book is graded by a standalone **verdict engine** — one referee, no stra
 - **10,000-path Monte Carlo** outcome distributions: P(−20% drawdown in 6 months), probability of a down year, probability of beating SPY
 - Frozen verdict labels: **CONFIRMED / PROMISING / INSUFFICIENT**
 
-Current honest grades: the challenger's 20-year backtested edge is **CONFIRMED** (Sharpe CI excludes zero, DSR ~100%); the champion grades **INSUFFICIENT** on its shorter window after its K=11 penalty — which is exactly why the A/B exists. The showcase site displays these grades verbatim, including the unflattering one.
+Current honest grades: the challenger's 20-year backtested edge is **CONFIRMED** (Sharpe CI excludes zero, DSR ~100%); the champion grades **INSUFFICIENT** on its shorter window after its K=11 penalty — which is exactly why the A/B exists. The desk dashboard displays these grades verbatim, including the unflattering one.
 
 Research follows a pre-registration protocol: hypothesis and pass/fail bar written down *before* touching data, every variant counted toward K, and failed ideas killed and logged with the same care as wins. Kills include the first HAR-RV volatility forecaster (reacted faster, still lost on risk-adjusted returns; a re-specified v2 later passed), VolBot on real option quotes (92% of condors held to expiry won, but loss stops gapped well past their 2x trigger and it lost money in 6 of 7 years), and jobs-report-day de-risking (the premise itself tested false: NFP days show no excess volatility over 20 years). Most ideas die; that's the point.
 
@@ -75,7 +75,7 @@ test_risk_overlay.py       Unit tests for the overlay
 config.py                  Every tuneable in one place
 dashboard.py               Streamlit operations dashboard (dark, Plotly)
 tracker.py                 One-command scoreboard: every book vs SPY since launch
-web/                       Public showcase page (Flask + animated front end)
+web/                       Trading-desk dashboard (Flask JSON API + vanilla JS/SVG)
 .github/workflows/         Staggered cron schedule + idempotency for reliability
 
 challenger/                the A/B rival: diversified 3-sleeve book, 16% vol
@@ -111,7 +111,7 @@ surface on the showcase page and in this README.)
 - **Python** (pandas, NumPy, SciPy, scikit-learn)
 - **Anthropic Claude** (Haiku 4.5, Batch API, web-search tool)
 - **Alpaca** (paper and live trading, IEX market data)
-- **Streamlit + Plotly** (operations dashboard), **Flask + vanilla JS/SVG** (showcase page)
+- **Streamlit + Plotly** (operations dashboard), **Flask + vanilla JS/SVG** (trading-desk dashboard)
 - **GitHub Actions** (cron scheduling, auto-commit, retries)
 - **Quant methods:** Hierarchical Risk Parity, mean-variance / Max-Sharpe via SciPy SLSQP, volatility targeting, gradient-boosted crash classifier, Deflated Sharpe Ratio, purged cross-validation
 
@@ -181,7 +181,7 @@ cp .env.example .env   # fill ALPACA_API_KEY, ALPACA_SECRET_KEY, ANTHROPIC_API_K
 python3 backtest.py    # 2019 -> today historical simulation
 python3 main.py        # one live pipeline run
 streamlit run dashboard.py   # operations dashboard
-python3 web/app.py           # public showcase page
+python3 web/app.py           # trading-desk dashboard
 ```
 
 Paper to live is one env var: `ALPACA_BASE_URL=https://api.alpaca.markets`.
@@ -192,4 +192,4 @@ Paper to live is one env var: `ALPACA_BASE_URL=https://api.alpaca.markets`.
 
 - Secrets live only in `.env` (gitignored, never committed). `.env.example` is a placeholder template.
 - The GitHub Actions workflow reads keys from repository secrets, never from the codebase.
-- The showcase page is read-only: it reads CSV logs and asks Alpaca for the account value, but it cannot place trades or change any bot state.
+- The desk dashboard is read-only: it reads the CSV logs, git history, alerts.log and the local research ledger. It does not load broker keys and cannot place trades or change any bot state.

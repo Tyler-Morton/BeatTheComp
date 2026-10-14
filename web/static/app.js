@@ -1,552 +1,803 @@
-/* Portfolio Bot showcase: animations, live data, and the vs-SPY chart. Read-only. */
+/* Trading desk front end. Vanilla JS, hand-rolled SVG charts, hash routing.
+   Everything here is read-only: it only GETs the JSON the Flask app serves. */
+"use strict";
 
-const REDUCED = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+// ───────────────────────────── formatting ─────────────────────────────
+const MINUS = "−";
+const isNum = (v) => typeof v === "number" && isFinite(v);
+const sign = (v) => (v > 0 ? "+" : v < 0 ? MINUS : "");
+function money(v, opts = {}) {
+  if (!isNum(v)) return "—";
+  const big = Math.abs(v) >= 10000 && !opts.cents;
+  const s = Math.abs(v).toLocaleString("en-US", {
+    minimumFractionDigits: big ? 0 : 2, maximumFractionDigits: big ? 0 : 2,
+  });
+  return (opts.signed ? sign(v) : v < 0 ? MINUS : "") + "$" + s;
+}
+function pct(v, d = 1, signed = true) {
+  if (!isNum(v)) return "—";
+  const s = Math.abs(v * 100).toFixed(d);
+  return (signed ? sign(v) : v < 0 ? MINUS : "") + s + "%";
+}
+function num(v, d = 2) { return isNum(v) ? (v < 0 ? MINUS : "") + Math.abs(v).toFixed(d) : "—"; }
+const cls = (v) => (!isNum(v) || v === 0 ? "" : v > 0 ? "pos" : "neg");
+const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+function dshort(s) { if (!s) return "—"; const [, m, d] = s.slice(0, 10).split("-"); return `${MONTHS[+m - 1]} ${+d}`; }
+function dlong(s) { if (!s) return "—"; const [y, m, d] = s.slice(0, 10).split("-"); return `${MONTHS[+m - 1]} ${+d}, ${y}`; }
+function ago(iso) {
+  if (!iso) return "—";
+  const s = (Date.now() - new Date(iso).getTime()) / 1000;
+  if (s < 90) return "just now";
+  if (s < 3600) return `${Math.round(s / 60)}m ago`;
+  if (s < 86400 * 1.5) return `${Math.round(s / 3600)}h ago`;
+  return `${Math.round(s / 86400)}d ago`;
+}
+function esc(s) {
+  return String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+}
+const $ = (sel, root = document) => root.querySelector(sel);
 
-/* ─────────────────────────────────────────────────────────────────────────
-   1. Flowing gradient background (ShaderGradient-style, pure canvas).
-   ───────────────────────────────────────────────────────────────────────── */
-function initGradient() {
-  const canvas = document.getElementById('gradient-canvas');
-  if (!canvas) return;
-  const ctx = canvas.getContext('2d');
-  // One hue only — a quiet blue field, not a multi-color gradient wash.
-  const blobs = [
-    { color: '147, 197, 253', r: 0.60, x: 0.78, y: 0.40, dx: 0.010, dy: 0.008, ph: 0 },
-    { color: '191, 219, 254', r: 0.50, x: 0.30, y: 0.75, dx: -0.008, dy: 0.009, ph: 2 },
-    { color: '219, 234, 254', r: 0.55, x: 0.55, y: 0.15, dx: 0.007, dy: -0.006, ph: 4 },
-  ];
-  let w, h, t = 0;
-  function resize() {
-    const dpr = Math.min(window.devicePixelRatio || 1, 2);
-    w = canvas.clientWidth; h = canvas.clientHeight;
-    canvas.width = w * dpr; canvas.height = h * dpr;
-    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-  }
-  resize();
-  window.addEventListener('resize', resize);
-  function draw() {
-    ctx.clearRect(0, 0, w, h);
-    ctx.globalCompositeOperation = 'multiply';
-    for (const b of blobs) {
-      const cx = (b.x + Math.sin(t * b.dx + b.ph) * 0.12) * w;
-      const cy = (b.y + Math.cos(t * b.dy + b.ph) * 0.12) * h;
-      const rad = b.r * Math.min(w, h) * 1.4;
-      const g = ctx.createRadialGradient(cx, cy, 0, cx, cy, rad);
-      g.addColorStop(0, `rgba(${b.color}, 0.42)`);
-      g.addColorStop(1, `rgba(${b.color}, 0)`);
-      ctx.fillStyle = g;
-      ctx.beginPath(); ctx.arc(cx, cy, rad, 0, Math.PI * 2); ctx.fill();
-    }
-    ctx.globalCompositeOperation = 'source-over';
-    t += 1;
-    if (!REDUCED) requestAnimationFrame(draw);
-  }
-  draw();
+// ───────────────────────────── data ─────────────────────────────
+const cache = new Map();
+async function api(path, fresh = false) {
+  if (!fresh && cache.has(path)) return cache.get(path);
+  const p = fetch(path, { cache: "no-store" }).then((r) => {
+    if (!r.ok) throw new Error(`${path}: HTTP ${r.status}`);
+    return r.json();
+  });
+  cache.set(path, p);
+  p.catch(() => cache.delete(path));
+  return p;
 }
 
-/* ─────────────────────────────────────────────────────────────────────────
-   2. Count-up animation.
-   ───────────────────────────────────────────────────────────────────────── */
-function countUp(el, target, { decimals = 0, prefix = '', suffix = '', dur = 1100 } = {}) {
-  const fmt = v => `${prefix}${v.toFixed(decimals)}${suffix}`;
-  if (REDUCED) { el.textContent = fmt(target); return; }
-  const start = performance.now();
-  function frame(now) {
-    const p = Math.min((now - start) / dur, 1);
-    const eased = 1 - Math.pow(1 - p, 3);
-    el.textContent = fmt(target * eased);
-    if (p < 1) requestAnimationFrame(frame); else el.textContent = fmt(target);
-  }
-  requestAnimationFrame(frame);
+const BOOK_COLOR = { champion: "var(--s1)", challenger: "var(--s2)", volbot: "var(--s3)" };
+const SERIES_VARS = ["var(--s1)", "var(--s2)", "var(--s3)", "var(--s4)", "var(--s5)", "var(--s6)"];
+const STATUS_LABEL = { ran: "Ran", missed: "Missed", failed: "Failed", scheduled: "Scheduled" };
+
+// ───────────────────────────── tooltip ─────────────────────────────
+const tip = () => $("#tip");
+function showTip(html, x, y) {
+  const t = tip();
+  t.innerHTML = html;
+  t.hidden = false;
+  const r = t.getBoundingClientRect();
+  let left = x + 14, top = y + 14;
+  if (left + r.width > window.innerWidth - 8) left = x - r.width - 14;
+  if (top + r.height > window.innerHeight - 8) top = y - r.height - 14;
+  t.style.left = Math.max(8, left) + "px";
+  t.style.top = Math.max(8, top) + "px";
+}
+function hideTip() { tip().hidden = true; }
+function tipRows(date, rows) {
+  return `<div class="d">${dlong(date)}</div>` + rows.map((r) =>
+    `<div class="r"><span class="l">${r.sw || ""}${esc(r.label)}</span><span class="v">${r.value}</span></div>`).join("");
+}
+const sw = (color, kind = "line") =>
+  kind === "dash" ? `<i class="swatch dash"></i>` : `<i class="swatch ${kind}" style="background:${color}"></i>`;
+
+// ───────────────────────────── charts ─────────────────────────────
+const NS = "http://www.w3.org/2000/svg";
+function niceTicks(lo, hi, n = 5) {
+  if (lo === hi) { lo -= 1; hi += 1; }
+  const raw = (hi - lo) / n;
+  const mag = Math.pow(10, Math.floor(Math.log10(raw)));
+  const step = [1, 2, 2.5, 5, 10].map((m) => m * mag).find((s) => s >= raw) || raw;
+  const out = [];
+  for (let v = Math.ceil(lo / step) * step; v <= hi + step * 1e-9; v += step) out.push(+v.toFixed(10));
+  return { ticks: out, lo: Math.min(lo, out[0]), hi: Math.max(hi, out[out.length - 1]) };
+}
+function monthTicks(dates, maxN) {
+  const idx = [];
+  for (let i = 1; i < dates.length; i++) if (dates[i].slice(5, 7) !== dates[i - 1].slice(5, 7)) idx.push(i);
+  if (!idx.length && dates.length) idx.push(0);
+  if (idx.length <= maxN) return idx;
+  const k = Math.ceil(idx.length / maxN);
+  return idx.filter((_, i) => i % k === 0);
+}
+function weekTicks(dates, maxN) {
+  const step = Math.max(1, Math.ceil(dates.length / maxN));
+  const out = [];
+  for (let i = 0; i < dates.length; i += step) out.push(i);
+  return out;
 }
 
-/* ─────────────────────────────────────────────────────────────────────────
-   3. Scroll reveal.
-   ───────────────────────────────────────────────────────────────────────── */
-function initReveal() {
-  const els = document.querySelectorAll('.reveal');
-  if (REDUCED) { els.forEach(e => e.classList.add('in')); return; }
-  const io = new IntersectionObserver((entries) => {
-    entries.forEach(e => { if (e.isIntersecting) { e.target.classList.add('in'); io.unobserve(e.target); } });
-  }, { threshold: 0.15 });
-  els.forEach(e => io.observe(e));
+/* Responsive chart mount: re-draws on width change. */
+function mount(host, draw) {
+  let w = 0;
+  const go = () => {
+    const nw = Math.floor(host.clientWidth);
+    if (nw && nw !== w) { w = nw; host.innerHTML = ""; draw(nw); }
+  };
+  const ro = new ResizeObserver(go);
+  ro.observe(host);
+  go();
 }
 
-/* Run a count-up once its container scrolls into view. Hardened so the numbers
-   can never get stuck on a placeholder if IntersectionObserver misbehaves. */
-function armCountOnView(containerSel, runner) {
-  const el = document.querySelector(containerSel);
+/**
+ * Line chart on a trading-day x axis.
+ * opt: { dates, series:[{label,color,values,dash,width,fill}], height, yFmt, tipFmt, zero, yMin, yMax }
+ */
+function lineChart(host, opt) {
+  mount(host, (W) => {
+    const H = opt.height || 240;
+    const n = opt.dates.length;
+    const all = opt.series.flatMap((s) => s.values).filter(isNum);
+    if (!n || !all.length) { host.innerHTML = `<div class="empty">No data yet</div>`; return; }
+    let lo = Math.min(...all), hi = Math.max(...all);
+    if (isNum(opt.zero)) { lo = Math.min(lo, opt.zero); hi = Math.max(hi, opt.zero); }
+    if (isNum(opt.yMin)) lo = Math.min(lo, opt.yMin);
+    if (isNum(opt.yMax)) hi = Math.max(hi, opt.yMax);
+    const pad = (hi - lo) * 0.06 || 1;
+    const nt = niceTicks(lo - (isNum(opt.yMin) ? 0 : pad), hi + (isNum(opt.yMax) ? 0 : pad), opt.ticks || (H < 150 ? 3 : 5));
+    const yLabels = nt.ticks.map(opt.yFmt);
+    const ml = Math.max(...yLabels.map((s) => s.length)) * 6.6 + 10;
+    const m = { l: ml, r: 8, t: 8, b: 22 };
+    const iw = W - m.l - m.r, ih = H - m.t - m.b;
+    const x = (i) => m.l + (n === 1 ? iw / 2 : (i / (n - 1)) * iw);
+    const y = (v) => m.t + ih - ((v - nt.lo) / (nt.hi - nt.lo)) * ih;
+
+    let g = "";
+    nt.ticks.forEach((t, k) => {
+      g += `<line class="gl" x1="${m.l}" x2="${W - m.r}" y1="${y(t)}" y2="${y(t)}"/>`;
+      g += `<text class="tick" x="${m.l - 8}" y="${y(t) + 3.5}" text-anchor="end">${esc(yLabels[k])}</text>`;
+    });
+    if (isNum(opt.zero)) g += `<line class="base" x1="${m.l}" x2="${W - m.r}" y1="${y(opt.zero)}" y2="${y(opt.zero)}"/>`;
+    const xt = n > 70 ? monthTicks(opt.dates, Math.max(2, Math.floor(iw / 70))) : weekTicks(opt.dates, Math.max(2, Math.floor(iw / 80)));
+    xt.forEach((i) => {
+      const lab = n > 70 ? MONTHS[+opt.dates[i].slice(5, 7) - 1] : dshort(opt.dates[i]);
+      g += `<text class="tick" x="${x(i)}" y="${H - 6}" text-anchor="middle">${lab}</text>`;
+    });
+
+    let paths = "";
+    opt.series.forEach((s) => {
+      let d = "", started = false, first = -1, last = -1;
+      s.values.forEach((v, i) => {
+        if (!isNum(v)) { started = false; return; }
+        d += `${started ? "L" : "M"}${x(i).toFixed(1)},${y(v).toFixed(1)}`;
+        started = true;
+        if (first < 0) first = i;
+        last = i;
+      });
+      if (s.fill && first >= 0) {
+        const base = y(isNum(opt.zero) ? opt.zero : nt.lo);
+        paths += `<path d="${d}L${x(last)},${base}L${x(first)},${base}Z" fill="${s.color}" opacity="${s.fillOpacity ?? 0.12}" stroke="none"/>`;
+      }
+      paths += `<path d="${d}" fill="none" stroke="${s.color}" stroke-width="${s.width || 2}" stroke-linejoin="round" stroke-linecap="round" ${s.dash ? 'stroke-dasharray="4 4"' : ""}/>`;
+    });
+
+    host.innerHTML = `<svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" role="img" aria-label="${esc(opt.aria || "chart")}">
+      ${g}${paths}<g class="hover"></g><rect class="hit" x="${m.l}" y="${m.t}" width="${iw}" height="${ih}"/></svg>`;
+    const svg = host.querySelector("svg"), hov = svg.querySelector(".hover"), hit = svg.querySelector(".hit");
+    const move = (ev) => {
+      const r = svg.getBoundingClientRect();
+      const px = ev.clientX - r.left;
+      const i = Math.max(0, Math.min(n - 1, Math.round(((px - m.l) / iw) * (n - 1))));
+      let h = `<line class="xh" x1="${x(i)}" x2="${x(i)}" y1="${m.t}" y2="${m.t + ih}"/>`;
+      const rows = [];
+      opt.series.forEach((s) => {
+        const v = s.values[i];
+        if (!isNum(v)) return;
+        h += `<circle cx="${x(i)}" cy="${y(v)}" r="4" fill="${s.color}" stroke="var(--surface)" stroke-width="2"/>`;
+        rows.push({ label: s.label, value: (opt.tipFmt || opt.yFmt)(v, s, i), sw: sw(s.color, s.dash ? "dash" : "line") });
+      });
+      hov.innerHTML = h;
+      showTip(tipRows(opt.dates[i], rows.concat(opt.extraTip ? opt.extraTip(i) : [])), ev.clientX, ev.clientY);
+    };
+    hit.addEventListener("pointermove", move);
+    hit.addEventListener("pointerleave", () => { hov.innerHTML = ""; hideTip(); });
+  });
+}
+
+/** Stacked 100% area of weights. opt: { dates, keys:[{key,label,color}], rows } */
+function stackChart(host, opt) {
+  mount(host, (W) => {
+    const H = opt.height || 220, n = opt.dates.length;
+    if (!n) { host.innerHTML = `<div class="empty">No positions logged</div>`; return; }
+    const m = { l: 40, r: 8, t: 6, b: 22 };
+    const iw = W - m.l - m.r, ih = H - m.t - m.b;
+    const x = (i) => m.l + (n === 1 ? 0 : (i / (n - 1)) * iw);
+    const y = (v) => m.t + ih - v * ih;
+    let g = "";
+    [0, 0.25, 0.5, 0.75, 1].forEach((t) => {
+      g += `<line class="gl" x1="${m.l}" x2="${W - m.r}" y1="${y(t)}" y2="${y(t)}"/>`;
+      g += `<text class="tick" x="${m.l - 8}" y="${y(t) + 3.5}" text-anchor="end">${t * 100}%</text>`;
+    });
+    const xt = n > 70 ? monthTicks(opt.dates, Math.floor(iw / 70)) : weekTicks(opt.dates, Math.floor(iw / 80));
+    xt.forEach((i) => g += `<text class="tick" x="${x(i)}" y="${H - 6}" text-anchor="middle">${n > 70 ? MONTHS[+opt.dates[i].slice(5, 7) - 1] : dshort(opt.dates[i])}</text>`);
+    const cum = new Array(n).fill(0);
+    let areas = "";
+    opt.keys.forEach((k) => {
+      const lo = cum.slice();
+      opt.rows.forEach((r, i) => { cum[i] += r[k.key] || 0; });
+      let d = "";
+      for (let i = 0; i < n; i++) d += `${i ? "L" : "M"}${x(i).toFixed(1)},${y(Math.min(1, cum[i])).toFixed(1)}`;
+      for (let i = n - 1; i >= 0; i--) d += `L${x(i).toFixed(1)},${y(Math.min(1, lo[i])).toFixed(1)}`;
+      areas += `<path d="${d}Z" fill="${k.color}" stroke="var(--surface)" stroke-width="0.75"/>`;
+    });
+    host.innerHTML = `<svg width="${W}" height="${H}" role="img" aria-label="Allocation over time">${areas}${g}<g class="hover"></g>
+      <rect class="hit" x="${m.l}" y="${m.t}" width="${iw}" height="${ih}"/></svg>`;
+    const svg = host.querySelector("svg"), hov = svg.querySelector(".hover");
+    svg.querySelector(".hit").addEventListener("pointermove", (ev) => {
+      const r = svg.getBoundingClientRect();
+      const i = Math.max(0, Math.min(n - 1, Math.round(((ev.clientX - r.left - m.l) / iw) * (n - 1))));
+      hov.innerHTML = `<line class="xh" x1="${x(i)}" x2="${x(i)}" y1="${m.t}" y2="${m.t + ih}"/>`;
+      const rows = opt.keys.map((k) => ({ k, v: opt.rows[i][k.key] || 0 })).filter((o) => o.v >= 0.001)
+        .sort((a, b) => b.v - a.v)
+        .map((o) => ({ label: o.k.label, value: pct(o.v, 1, false), sw: sw(o.k.color, "") }));
+      showTip(tipRows(opt.dates[i], rows), ev.clientX, ev.clientY);
+    });
+    svg.querySelector(".hit").addEventListener("pointerleave", () => { hov.innerHTML = ""; hideTip(); });
+  });
+}
+
+/** Simple bars on a trading-day axis. opt: { dates, values, color, yFmt, height } */
+function barChart(host, opt) {
+  mount(host, (W) => {
+    const H = opt.height || 160, n = opt.dates.length;
+    if (!n) { host.innerHTML = `<div class="empty">No rebalances yet</div>`; return; }
+    const hi = Math.max(...opt.values.filter(isNum), 0.0001);
+    const nt = niceTicks(0, hi, 3);
+    const labels = nt.ticks.map(opt.yFmt);
+    const m = { l: Math.max(...labels.map((s) => s.length)) * 6.6 + 10, r: 8, t: 6, b: 22 };
+    const iw = W - m.l - m.r, ih = H - m.t - m.b;
+    const bw = iw / n, gap = Math.min(2, bw * 0.3);
+    const y = (v) => m.t + ih - (v / nt.hi) * ih;
+    let g = "";
+    nt.ticks.forEach((t, k) => {
+      g += `<line class="gl" x1="${m.l}" x2="${W - m.r}" y1="${y(t)}" y2="${y(t)}"/>`;
+      g += `<text class="tick" x="${m.l - 8}" y="${y(t) + 3.5}" text-anchor="end">${labels[k]}</text>`;
+    });
+    g += `<line class="base" x1="${m.l}" x2="${W - m.r}" y1="${y(0)}" y2="${y(0)}"/>`;
+    const xt = n > 70 ? monthTicks(opt.dates, Math.floor(iw / 70)) : weekTicks(opt.dates, Math.floor(iw / 80));
+    xt.forEach((i) => g += `<text class="tick" x="${m.l + (i + 0.5) * bw}" y="${H - 6}" text-anchor="middle">${n > 70 ? MONTHS[+opt.dates[i].slice(5, 7) - 1] : dshort(opt.dates[i])}</text>`);
+    let bars = "";
+    opt.values.forEach((v, i) => {
+      if (!isNum(v) || v <= 0) return;
+      const h = Math.max(1, y(0) - y(v));
+      const r = Math.min(2, (bw - gap) / 2, h / 2);
+      const x0 = m.l + i * bw + gap / 2, w = Math.max(1, bw - gap), yt = y(0) - h;
+      bars += `<path d="M${x0},${y(0)}V${yt + r}Q${x0},${yt} ${x0 + r},${yt}H${x0 + w - r}Q${x0 + w},${yt} ${x0 + w},${yt + r}V${y(0)}Z" fill="${opt.color}"/>`;
+    });
+    host.innerHTML = `<svg width="${W}" height="${H}" role="img" aria-label="${esc(opt.aria || "bars")}">${g}${bars}<g class="hover"></g>
+      <rect class="hit" x="${m.l}" y="${m.t}" width="${iw}" height="${ih}"/></svg>`;
+    const svg = host.querySelector("svg"), hov = svg.querySelector(".hover");
+    svg.querySelector(".hit").addEventListener("pointermove", (ev) => {
+      const r = svg.getBoundingClientRect();
+      const i = Math.max(0, Math.min(n - 1, Math.floor((ev.clientX - r.left - m.l) / bw)));
+      hov.innerHTML = `<rect x="${m.l + i * bw}" y="${m.t}" width="${bw}" height="${ih}" fill="var(--ink)" opacity=".05"/>`;
+      showTip(tipRows(opt.dates[i], [{ label: opt.label || "Value", value: opt.yFmt(opt.values[i] || 0, true) }]), ev.clientX, ev.clientY);
+    });
+    svg.querySelector(".hit").addEventListener("pointerleave", () => { hov.innerHTML = ""; hideTip(); });
+  });
+}
+
+function sparkline(series, color) {
+  const pts = series.filter((p) => isNum(p.eq));
+  if (pts.length < 2) return "";
+  const W = 300, H = 66;
+  const e0 = pts[0].eq, s0 = pts.find((p) => isNum(p.spy))?.spy;
+  const book = pts.map((p) => p.eq / e0);
+  const spy = s0 ? pts.map((p) => (isNum(p.spy) ? p.spy / s0 : null)) : [];
+  const vals = book.concat(spy.filter(isNum));
+  const lo = Math.min(...vals, 1), hi = Math.max(...vals, 1);
+  const x = (i) => (i / (pts.length - 1)) * W;
+  const y = (v) => 4 + (H - 8) - ((v - lo) / (hi - lo || 1)) * (H - 8);
+  const path = (a) => a.map((v, i) => (isNum(v) ? `${i ? "L" : "M"}${x(i).toFixed(1)},${y(v).toFixed(1)}` : "")).join("");
+  return `<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" aria-hidden="true">
+    <line x1="0" x2="${W}" y1="${y(1)}" y2="${y(1)}" stroke="var(--grid)" stroke-width="1" vector-effect="non-scaling-stroke"/>
+    ${spy.length ? `<path d="${path(spy)}" fill="none" stroke="var(--spy)" stroke-width="1.5" stroke-dasharray="3 3" vector-effect="non-scaling-stroke"/>` : ""}
+    <path d="${path(book)}" fill="none" stroke="${color}" stroke-width="2" vector-effect="non-scaling-stroke" stroke-linejoin="round"/>
+  </svg>`;
+}
+
+// ───────────────────────────── components ─────────────────────────────
+function statusPill(st) {
+  if (!st) return "";
+  const gh = st.gh ? ` · Actions: ${st.gh.conclusion || st.gh.status} ${ago(st.gh.at)}` : "";
+  const title = `Last log row ${st.last_log || "none"}; expected ${st.expected}${gh}${st.pending_today ? " · today's run not yet due" : ""}`;
+  return `<span class="pill ${st.state}" title="${esc(title)}"><span class="dot"></span>${esc(st.label)}</span>`;
+}
+function kpiStrip(items) {
+  return `<div class="kpis" style="--n:${items.length}">${items.map((k) => `
+    <div class="kpi"><div class="k">${esc(k.k)}</div><div class="v ${k.cls || ""}">${k.v}</div>${k.s ? `<div class="s">${k.s}</div>` : ""}</div>`).join("")}</div>`;
+}
+function card(title, body, { sub = "", right = "", id = "", foot = "" } = {}) {
+  return `<section class="card"${id ? ` id="${id}"` : ""}>
+    <div class="card-head"><div><h2>${title}</h2>${sub ? `<div class="sub">${sub}</div>` : ""}</div>${right}</div>
+    ${body}${foot ? `<div class="card-foot">${foot}</div>` : ""}</section>`;
+}
+function seg(name, opts, on) {
+  return `<div class="seg" role="tablist" data-seg="${name}">${opts.map((o) =>
+    `<button type="button" role="tab" data-v="${o.v}" class="${o.v === on ? "on" : ""}" aria-selected="${o.v === on}">${o.label}${o.count != null ? `<span class="c">${o.count}</span>` : ""}</button>`).join("")}</div>`;
+}
+function bindSeg(root, name, fn) {
+  const el = root.querySelector(`[data-seg="${name}"]`);
   if (!el) return;
-  let done = false;
-  const fire = () => { if (!done) { done = true; runner(); } };
-  const inView = () => {
-    const r = el.getBoundingClientRect();
-    return r.top < window.innerHeight * 0.85 && r.bottom > 0;
-  };
-  if (inView()) { fire(); return; }
-  const io = new IntersectionObserver((entries) => {
-    entries.forEach(e => { if (e.isIntersecting) { fire(); io.disconnect(); } });
-  }, { threshold: 0.25 });
-  io.observe(el);
-  setTimeout(() => { if (!done && (inView() || window.scrollY > el.offsetTop - window.innerHeight)) fire(); }, 8000);
-}
-
-/* ─────────────────────────────────────────────────────────────────────────
-   4. The vs-SPY chart.
-   ───────────────────────────────────────────────────────────────────────── */
-const SVGNS = 'http://www.w3.org/2000/svg';
-const VB = { w: 880, h: 380, ml: 56, mr: 18, mt: 18, mb: 34 };
-const PLOT = {
-  x0: VB.ml, x1: VB.w - VB.mr, y0: VB.mt, y1: VB.h - VB.mb,
-  get w() { return this.x1 - this.x0; }, get h() { return this.y1 - this.y0; },
-};
-
-let CHART = { inception: null, series: [] };
-let CHART_VIEW = [];   // currently-rendered, rebased points (for the tooltip)
-
-const money = v => '$' + Math.round(v).toLocaleString('en-US');
-const money2 = v => '$' + v.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-const parseDate = s => new Date(s + 'T00:00:00');
-
-function filterRange(range) {
-  const s = CHART.series.filter(p => p.spy != null);
-  if (!s.length) return [];
-  const end = parseDate(s[s.length - 1].date);
-  let cutoff;
-  if (range === 'YTD') return s;                                   // series already starts Jan 2
-  if (range === 'ALL') cutoff = parseDate(CHART.inception);
-  else { const days = range === '1W' ? 7 : 30; cutoff = new Date(end); cutoff.setDate(cutoff.getDate() - days); }
-  const out = s.filter(p => parseDate(p.date) >= cutoff);
-  return out.length >= 2 ? out : s;
-}
-
-function el(tag, attrs, parent) {
-  const n = document.createElementNS(SVGNS, tag);
-  for (const k in attrs) n.setAttribute(k, attrs[k]);
-  if (parent) parent.appendChild(n);
-  return n;
-}
-
-function renderChart(range) {
-  const svg = document.getElementById('equity-chart');
-  if (!svg) return;
-  const pts = filterRange(range);
-  if (pts.length < 2) return;
-
-  // Rebase both lines to a common $1,000 start for this window. The challenger
-  // starts mid-chart, so it rebases to $1,000 at ITS first point (like any new
-  // fund joining a comparison) and the line simply begins there.
-  const bP = pts[0].port, bS = pts[0].spy;
-  const firstChal = pts.find(p => p.chal != null);
-  const bC = firstChal ? firstChal.chal : null;
-  const view = pts.map(p => ({
-    date: p.date, port: p.port / bP * 1000, spy: p.spy / bS * 1000,
-    chal: (bC && p.chal != null) ? p.chal / bC * 1000 : null,
-  }));
-  CHART_VIEW = view;
-
-  const all = view.flatMap(p => [p.port, p.spy, ...(p.chal != null ? [p.chal] : [])]);
-  let lo = Math.min(...all), hi = Math.max(...all);
-  const pad = (hi - lo) * 0.08 || hi * 0.02;
-  lo -= pad; hi += pad;
-
-  const n = view.length;
-  const X = i => PLOT.x0 + (i / (n - 1)) * PLOT.w;
-  const Y = v => PLOT.y1 - ((v - lo) / (hi - lo)) * PLOT.h;
-
-  svg.innerHTML = '';
-  const defs = el('defs', {}, svg);
-  const grad = el('linearGradient', { id: 'port-fill', x1: 0, y1: 0, x2: 0, y2: 1 }, defs);
-  el('stop', { offset: '0%', 'stop-color': 'rgba(37,99,235,0.14)' }, grad);
-  el('stop', { offset: '100%', 'stop-color': 'rgba(37,99,235,0)' }, grad);
-
-  // Horizontal gridlines + y-axis $ labels
-  const ticks = 5;
-  for (let i = 0; i < ticks; i++) {
-    const v = lo + (hi - lo) * (i / (ticks - 1));
-    const y = Y(v);
-    el('line', { x1: PLOT.x0, y1: y, x2: PLOT.x1, y2: y, stroke: '#eef2f7', 'stroke-width': 1 }, svg);
-    const tx = el('text', { x: PLOT.x0 - 10, y: y + 4, 'text-anchor': 'end',
-      'font-family': 'Geist Mono, monospace', 'font-size': 11, fill: '#94a3b8' }, svg);
-    tx.textContent = '$' + Math.round(v).toLocaleString('en-US');
-  }
-
-  // X-axis date labels (about 5 across)
-  const labels = Math.min(5, n);
-  for (let i = 0; i < labels; i++) {
-    const idx = Math.round((i / (labels - 1)) * (n - 1));
-    const d = parseDate(view[idx].date);
-    const tx = el('text', { x: X(idx), y: VB.h - 12, 'text-anchor': i === 0 ? 'start' : i === labels - 1 ? 'end' : 'middle',
-      'font-family': 'Geist Mono, monospace', 'font-size': 11, fill: '#94a3b8' }, svg);
-    tx.textContent = d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-  }
-
-  const linePath = (key) => view.map((p, i) => `${i ? 'L' : 'M'} ${X(i).toFixed(1)} ${Y(p[key]).toFixed(1)}`).join(' ');
-
-  // Portfolio area fill
-  const areaD = linePath('port') + ` L ${X(n - 1).toFixed(1)} ${PLOT.y1} L ${X(0).toFixed(1)} ${PLOT.y1} Z`;
-  el('path', { d: areaD, fill: 'url(#port-fill)' }, svg);
-
-  // SPY line (dashed gray)
-  el('path', { d: linePath('spy'), fill: 'none', stroke: '#94a3b8', 'stroke-width': 1.75,
-    'stroke-dasharray': '5 4', 'stroke-linejoin': 'round' }, svg);
-
-  // Portfolio line (solid blue) with a draw-in animation
-  const port = el('path', { d: linePath('port'), fill: 'none', stroke: '#2563eb', 'stroke-width': 2.5,
-    'stroke-linejoin': 'round', 'stroke-linecap': 'round' }, svg);
-  if (!REDUCED) {
-    const len = port.getTotalLength();
-    port.style.strokeDasharray = len; port.style.strokeDashoffset = len;
-    port.animate([{ strokeDashoffset: len }, { strokeDashoffset: 0 }], { duration: 1100, easing: 'cubic-bezier(0.23,1,0.32,1)', fill: 'forwards' });
-  }
-
-  // Challenger line (amber). With one data point it's just the starting dot.
-  const chalIdx = view.map((p, i) => p.chal != null ? i : -1).filter(i => i >= 0);
-  if (chalIdx.length >= 2) {
-    const d = chalIdx.map((i, k) => `${k ? 'L' : 'M'} ${X(i).toFixed(1)} ${Y(view[i].chal).toFixed(1)}`).join(' ');
-    el('path', { d, fill: 'none', stroke: '#f59e0b', 'stroke-width': 2.25,
-      'stroke-linejoin': 'round', 'stroke-linecap': 'round' }, svg);
-  }
-  if (chalIdx.length) {
-    const li = chalIdx[chalIdx.length - 1];
-    el('circle', { cx: X(li), cy: Y(view[li].chal), r: 4.5, fill: '#f59e0b' }, svg);
-  }
-
-  // End dots
-  el('circle', { cx: X(n - 1), cy: Y(view[n - 1].spy), r: 3.5, fill: '#94a3b8' }, svg);
-  el('circle', { cx: X(n - 1), cy: Y(view[n - 1].port), r: 4.5, fill: '#2563eb' }, svg);
-
-  // Legend: each line shows its own value AND its own return, so the vs-SPY
-  // badge can't be misread as the portfolio's loss.
-  const last = view[n - 1];
-  const portRet = (last.port / 1000 - 1) * 100;
-  const spyRet = (last.spy / 1000 - 1) * 100;
-  const fmtRet = r => `${r >= 0 ? '+' : ''}${r.toFixed(1)}%`;
-  document.getElementById('lg-port').textContent = `${money(last.port)} · ${fmtRet(portRet)}`;
-  document.getElementById('lg-spy').textContent = `${money(last.spy)} · ${fmtRet(spyRet)}`;
-  const diff = portRet - spyRet;
-  const diffEl = document.getElementById('lg-diff');
-  diffEl.textContent = `${diff >= 0 ? '+' : ''}${diff.toFixed(1)}% vs S&P`;
-  diffEl.className = 'lg-diff ' + (diff >= 0 ? 'pos' : 'neg');
-
-  const chalWrap = document.getElementById('lg-chal-wrap');
-  if (chalIdx.length) {
-    const lc = view[chalIdx[chalIdx.length - 1]].chal;
-    document.getElementById('lg-chal').textContent = `${money(lc)} · ${fmtRet((lc / 1000 - 1) * 100)}`;
-    chalWrap.style.display = '';
-  } else {
-    chalWrap.style.display = 'none';
-  }
-
-  // Stash geometry for the hover handler
-  svg._geo = { X, Y, n };
-}
-
-function initChartHover() {
-  const area = document.getElementById('chart-area');
-  const svg = document.getElementById('equity-chart');
-  const cross = document.getElementById('chart-crosshair');
-  const tip = document.getElementById('chart-tooltip');
-  if (!area) return;
-
-  const move = (clientX) => {
-    if (!CHART_VIEW.length) return;
-    const rect = area.getBoundingClientRect();
-    const frac = Math.min(Math.max((clientX - rect.left) / rect.width, 0), 1);
-    const n = CHART_VIEW.length;
-    const idx = Math.round(frac * (n - 1));
-    const p = CHART_VIEW[idx];
-    const pxX = (PLOT.x0 + (idx / (n - 1)) * PLOT.w) / VB.w * rect.width;
-
-    cross.style.left = pxX + 'px';
-    cross.style.height = svg.getBoundingClientRect().height + 'px';
-    cross.style.opacity = '1';
-
-    const d = parseDate(p.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
-    const diff = (p.port - p.spy) / 1000 * 100;
-    tip.innerHTML =
-      `<div class="tt-date">${d}</div>` +
-      `<div class="tt-row"><span class="tt-dot" style="background:#2563eb"></span>Portfolio <b>${money2(p.port)}</b></div>` +
-      `<div class="tt-row"><span class="tt-dot" style="background:#94a3b8"></span>S&amp;P 500 <b>${money2(p.spy)}</b></div>` +
-      (p.chal != null ? `<div class="tt-row"><span class="tt-dot" style="background:#f59e0b"></span>Challenger <b>${money2(p.chal)}</b></div>` : '') +
-      `<div class="tt-row" style="color:${diff >= 0 ? '#34d399' : '#f87171'}">${diff >= 0 ? '+' : ''}${diff.toFixed(1)}% vs S&amp;P</div>`;
-    const clamped = Math.min(Math.max(pxX, 70), rect.width - 70);
-    tip.style.left = clamped + 'px';
-    tip.style.opacity = '1';
-  };
-
-  area.addEventListener('mousemove', e => move(e.clientX));
-  area.addEventListener('mouseleave', () => { cross.style.opacity = '0'; tip.style.opacity = '0'; });
-}
-
-function initRangeButtons() {
-  const wrap = document.getElementById('range-btns');
-  if (!wrap) return;
-  wrap.addEventListener('click', e => {
-    const btn = e.target.closest('button'); if (!btn) return;
-    wrap.querySelectorAll('button').forEach(b => b.classList.toggle('active', b === btn));
-    renderChart(btn.dataset.range);
+  el.addEventListener("click", (e) => {
+    const b = e.target.closest("button");
+    if (!b) return;
+    el.querySelectorAll("button").forEach((x) => { x.classList.toggle("on", x === b); x.setAttribute("aria-selected", x === b); });
+    fn(b.dataset.v);
   });
 }
+function loading() { return `<div class="skeleton"></div><div class="grid g3 mt"><div class="skeleton"></div><div class="skeleton"></div><div class="skeleton"></div></div>`; }
+function errorBox(e) { return `<div class="callout warn"><span class="bar"></span><div><b>Couldn't load data.</b> ${esc(e.message || e)}</div></div>`; }
 
-/* ─────────────────────────────────────────────────────────────────────────
-   5. Current holdings: an allocation bar plus a value/weight list.
-   ───────────────────────────────────────────────────────────────────────── */
-const HOLD_COLORS = ['#2563eb', '#10b981', '#f59e0b', '#8b5cf6', '#06b6d4',
-  '#ec4899', '#f97316', '#14b8a6', '#a855f7', '#64748b'];
-const isCash = sym => sym === 'SHV' || sym === 'BIL' || sym === 'SGOV';
+// ───────────────────────────── Desk ─────────────────────────────
+async function renderDesk(view) {
+  const d = await api("/api/desk");
+  setAsOf(d.generated);
+  const books = d.books;
+  const ran = books.filter((b) => b.status.state === "ran").length;
+  const beating = books.filter((b) => isNum(b.stats.vs_spy) && b.stats.vs_spy > 0).length;
+  const lastLog = books.map((b) => b.status.last_log).filter(Boolean).sort().pop();
+  const r = d.research;
 
-function renderHoldings(positions) {
-  const bar = document.getElementById('alloc-bar');
-  const list = document.getElementById('holdings-list');
-  if (!bar || !list) return;
-  if (!positions || !positions.length) {
-    document.getElementById('holdings').style.display = 'none';
-    return;
-  }
-
-  const color = (sym, i) => isCash(sym) ? '#94a3b8' : HOLD_COLORS[i % HOLD_COLORS.length];
-  const maxWt = Math.max(...positions.map(p => p.weight));
-
-  bar.innerHTML = positions.map((p, i) =>
-    `<div class="alloc-seg" style="width:${p.weight}%;background:${color(p.symbol, i)}" title="${p.symbol} ${p.weight}%"></div>`
-  ).join('');
-
-  list.innerHTML = positions.map((p, i) => {
-    const c = color(p.symbol, i);
-    const tag = isCash(p.symbol) ? '<span class="holding-tag">Cash</span>' : '';
-    return `<div class="holding-row">
-      <div class="holding-id"><span class="holding-dot" style="background:${c}"></span>
-        <span class="holding-sym">${p.symbol}</span>${tag}</div>
-      <div class="holding-track"><div class="holding-fill" style="width:${(p.weight / maxWt * 100).toFixed(1)}%;background:${c}"></div></div>
-      <div class="holding-nums"><div class="holding-val">${money2(p.value)}</div>
-        <div class="holding-wt">${p.weight}% of book</div></div>
+  view.innerHTML = `
+    <div class="page-head">
+      <div><h1>Desk</h1><p>Three paper books, each against SPY over its own live window. Numbers come from the logs the bots commit after every run.</p></div>
+    </div>
+    ${kpiStrip([
+      { k: "Last runs", v: `${ran} of ${books.length}`, s: `ran on schedule · latest log ${dshort(lastLog)}` },
+      { k: "Beating SPY since inception", v: `${beating} of ${books.length}`, s: "same dates, price return" },
+      { k: "Research ledger", v: r ? `${r.total}` : "—", s: r ? `${r.PASS} pass · ${r.FAIL} fail · ${r["PRE-REGISTERED"]} open` : "experiments.md not found" },
+      { k: "Alerts, last 30 days", v: `${d.alerts_30d}`, s: "from alerts.log" },
+    ])}
+    <div class="grid g3 mt">${books.map(bookCard).join("")}</div>
+    <div class="grid g-2-1 mt">
+      ${card("Growth of 100, all books vs SPY", `<div class="card-body"><div class="legend" id="perf-legend"></div><div class="chart mt" id="perf"></div></div>`,
+        { sub: "Each line rebased to 100 at the start of the window, or at the book's first day if later", right: seg("win", [{ v: "1M", label: "1M" }, { v: "3M", label: "3M" }, { v: "ALL", label: "All" }], "ALL") })}
+      <div class="stack">${metaCard(d.meta)}${latestCard(r)}</div>
     </div>`;
-  }).join('');
+
+  view.querySelectorAll(".book-card").forEach((el) => el.addEventListener("click", () => (location.hash = el.dataset.href)));
+  view.querySelectorAll(".book-card").forEach((el) => el.addEventListener("keydown", (e) => { if (e.key === "Enter") location.hash = el.dataset.href; }));
+
+  const draw = (win) => perfChart($("#perf", view), $("#perf-legend", view), books, win);
+  draw("ALL");
+  bindSeg(view, "win", draw);
 }
 
-/* ─────────────────────────────────────────────────────────────────────────
-   6. Fetch live data and populate the page.
-   ───────────────────────────────────────────────────────────────────────── */
-function setSigned(el, val, { decimals = 2, suffix = '%' } = {}) {
-  const sign = val > 0 ? '+' : '';
-  el.textContent = `${sign}${val.toFixed(decimals)}${suffix}`;
-  el.classList.add(val >= 0 ? 'pos' : 'neg');
-}
-
-async function loadData() {
-  let d;
-  try { d = await (await fetch('/api/stats')).json(); }
-  catch (err) { document.getElementById('badge-value').textContent = 'offline'; return; }
-
-  const bt = d.backtest, m = d.metrics;
-  const sign = d.day_change >= 0 ? '+' : '';
-
-  // ── Hero badge ──
-  const badgeVal = document.getElementById('badge-value');
-  if (!REDUCED) countUp(badgeVal, d.equity, { prefix: '$', decimals: 0, dur: 1200 });
-  else badgeVal.textContent = money(d.equity);
-  const badgeDelta = document.getElementById('badge-delta');
-  badgeDelta.textContent = `${sign}${d.day_change.toFixed(2)} (${sign}${d.day_change_pct.toFixed(2)}%) today`;
-  badgeDelta.classList.toggle('neg', d.day_change < 0);
-  document.getElementById('hero-status').textContent =
-    (d.is_live ? 'Live on Alpaca' : 'Last recorded run') + ' · since May 2026';
-
-  // ── Regime + today (text) ──
-  const regimeEl = document.getElementById('stat-regime');
-  regimeEl.textContent = d.regime.replace('_', ' ');
-  regimeEl.className = 'stat-value ' + (d.regime === 'RISK_OFF' ? 'red' : d.regime === 'CHOPPY' ? 'blue' : 'green');
-  document.getElementById('stat-regime-sub').textContent = d.regime_label.toLowerCase() + ' market';
-  const todayEl = document.getElementById('stat-today');
-  todayEl.textContent = `${sign}${d.day_change_pct.toFixed(2)}%`;
-  todayEl.className = 'stat-value ' + (d.day_change < 0 ? 'red' : 'green');
-  document.getElementById('stat-equity-sub').textContent = d.is_live ? 'live · Alpaca' : 'last run · ' + d.last_run;
-
-  // ── Stats strip count-ups (Sharpe/maxDD come from the verdict engine) ──
-  armCountOnView('#stats-strip', () => {
-    countUp(document.getElementById('stat-equity'), d.equity, { prefix: '$', decimals: 0 });
-    const champ = VERDICT && VERDICT.books && VERDICT.books.champion;
-    countUp(document.getElementById('stat-sharpe'), champ ? champ.sharpe : bt.sharpe, { decimals: 2 });
-    countUp(document.getElementById('stat-maxdd'), champ ? champ.maxdd * 100 : bt.max_dd, { suffix: '%' });
-  });
-
-  // ── Chart ──
-  CHART = d.chart || { inception: null, series: [] };
-  if (CHART.series.length) { renderChart('ALL'); initChartHover(); initRangeButtons(); }
-
-  // ── Holdings ──
-  renderHoldings(d.positions);
-
-  // ── Challenger section ──
-  if (d.challenger) {
-    const c = d.challenger;
-    document.getElementById('challenger').style.display = '';
-    document.getElementById('chal-equity').textContent = money(c.equity);
-    document.getElementById('chal-since').textContent =
-      (c.is_live ? 'live · Alpaca · since ' : 'since ') + c.started;
-    const r = document.getElementById('chal-return');
-    r.textContent = `${c.total_return >= 0 ? '+' : ''}${c.total_return.toFixed(1)}%`;
-    r.classList.add(c.total_return >= 0 ? 'pos' : 'neg');
-    document.getElementById('chal-days').textContent =
-      `${c.days} trading day${c.days === 1 ? '' : 's'}, forward, real fills`;
-    document.getElementById('chal-vol').textContent = `${c.backtest.target_vol}%`;
-    document.getElementById('chal-sharpe').textContent = c.backtest.sharpe.toFixed(2);
-    document.getElementById('chal-spy-sharpe').textContent = c.backtest.spy_sharpe.toFixed(2);
-  }
-
-  // ── Since-inception metrics ──
-  if (m) {
-    const set = (id, txt, cls) => { const e = document.getElementById(id); e.textContent = txt; if (cls) e.classList.add(cls); };
-    set('m-total', `${m.total_return > 0 ? '+' : ''}${m.total_return}%`, m.total_return >= 0 ? 'pos' : 'neg');
-    if (m.alpha != null) set('m-alpha', `${m.alpha > 0 ? '+' : ''}${m.alpha}%`, m.alpha >= 0 ? 'pos' : 'neg');
-    else set('m-alpha', 'n/a');
-    set('m-best', `+${m.best_day}%`, 'pos');
-    set('m-worst', `${m.worst_day}%`, 'neg');
-    set('m-win', `${m.win_rate}%`);
-    set('m-days', `${m.days_live}`);
-    set('m-rebal', `${m.rebalances}`);
-    set('m-cash', m.cash_pct != null ? `${m.cash_pct}%` : 'n/a');
-  }
-
-}
-
-/* ─────────────────────────────────────────────────────────────────────────
-   7. Evidence: verdict report cards + the Monte Carlo fan chart.
-   Data comes from /static/verdict.json, written by research/verdict.py.
-   ───────────────────────────────────────────────────────────────────────── */
-let VERDICT = null;
-
-const pct = (v, dp = 1) => `${v >= 0 ? '+' : ''}${(v * 100).toFixed(dp)}%`;
-const pctu = (v, dp = 1) => `${(v * 100).toFixed(dp)}%`;
-
-function verdictCard(book, key) {
-  const chip = book.sufficiency.toLowerCase();
-  const [lo, hi] = book.sharpe_ci95;
-  // CI bar geometry: fixed -0.5..1.6 scale so all three cards align.
-  const S0 = -0.5, S1 = 1.6;
-  const px = v => Math.min(Math.max((v - S0) / (S1 - S0), 0), 1) * 100;
-  const rows = [
-    ['CAGR', pct(book.cagr)],
-    ['Volatility', pctu(book.vol)],
-    ['Max drawdown', pct(book.maxdd)],
-    ['Worst month', pct(book.worst_month)],
-  ];
-  if (book.alpha_ann != null) rows.push(['Alpha vs SPY', pct(book.alpha_ann) + '/yr']);
-  if (book.beta != null) rows.push(['Beta', book.beta.toFixed(2)]);
-  return `<article class="verdict-card" data-book="${key}">
-    <div class="verdict-top">
-      <span class="v-name">${book.name}</span>
-      <span class="v-chip ${chip}">${book.sufficiency}</span>
+function bookCard(b) {
+  const s = b.stats, color = BOOK_COLOR[b.id];
+  return `<article class="card book-card" tabindex="0" role="link" data-href="#/book/${b.id}" aria-label="${esc(b.name)} detail">
+    <div class="top"><div class="name"><i class="swatch" style="background:${color}"></i>${esc(b.name)}</div>${statusPill(b.status)}</div>
+    <div class="desc">${esc(b.desc)}</div>
+    <div class="eq"><span class="big">${money(s.equity)}</span>
+      <span class="chg ${cls(s.day_pnl)}">${money(s.day_pnl, { signed: true, cents: true })} (${pct(s.day_pct, 2)})</span><span class="muted" style="font-size:12px">last session</span></div>
+    <div class="spark">${sparkline(b.series, color)}</div>
+    <div class="mini">
+      <div><div class="k">Return</div><div class="v ${cls(s.total_return)}">${pct(s.total_return)}</div></div>
+      <div><div class="k">vs SPY</div><div class="v ${cls(s.vs_spy)}">${pct(s.vs_spy)}</div></div>
+      <div><div class="k">Max DD</div><div class="v">${pct(s.max_drawdown, 1)}</div></div>
+      <div><div class="k">Sharpe</div><div class="v">${num(s.sharpe)}</div></div>
     </div>
-    <div class="v-sharpe">
-      <div class="v-sharpe-num">${book.sharpe.toFixed(2)}<span> Sharpe</span></div>
-      <div class="v-ci">
-        <div class="v-ci-track">
-          <span class="v-ci-zero" style="left:${px(0)}%"></span>
-          <span class="v-ci-range ${lo > 0 ? 'pos' : ''}" style="left:${px(lo)}%;width:${px(hi) - px(lo)}%"></span>
-          <span class="v-ci-dot" style="left:${px(book.sharpe)}%"></span>
-        </div>
-        <div class="v-ci-label">95% CI ${lo.toFixed(2)} … ${hi.toFixed(2)} · ${book.years}y of data</div>
-      </div>
-    </div>
-    <div class="v-dsr">Deflated Sharpe <b>${pctu(book.dsr, 1)}</b><span class="v-k">after K=${book.k_trials} configs tried</span></div>
-    <dl class="v-rows">${rows.map(([k, v]) => `<div><dt>${k}</dt><dd>${v}</dd></div>`).join('')}</dl>
+    <div class="foot-line"><span>${s.obs || 0} sessions since ${dshort(s.start)}</span><span class="go">Open book →</span></div>
   </article>`;
 }
 
-function renderFan(key) {
-  const svg = document.getElementById('fan-chart');
-  const probs = document.getElementById('fan-probs');
-  const book = VERDICT.books[key];
-  if (!svg || !book || !book.monte_carlo) return;
-  const mc = book.monte_carlo;
-  const fan = mc.fan;
-  const months = fan.days.map(d => d / 21);
-  const B = q => fan.bands[q];
-
-  const W = 880, H = 330, ML = 56, MR = 18, MT = 16, MB = 30;
-  const allVals = [...B('5'), ...B('95'), 0];
-  let lo = Math.min(...allVals), hi = Math.max(...allVals);
-  const pad = (hi - lo) * 0.08; lo -= pad; hi += pad;
-  const X = i => ML + (i / (months.length - 1)) * (W - ML - MR);
-  const Y = v => (H - MB) - ((v - lo) / (hi - lo)) * (H - MT - MB);
-
-  svg.innerHTML = '';
-  const mk = (tag, attrs) => { const n = document.createElementNS(SVGNS, tag);
-    for (const k in attrs) n.setAttribute(k, attrs[k]); svg.appendChild(n); return n; };
-
-  // gridlines + % labels
-  for (let t = 0; t < 5; t++) {
-    const v = lo + (hi - lo) * (t / 4), y = Y(v);
-    mk('line', { x1: ML, y1: y, x2: W - MR, y2: y, stroke: '#eef2f7', 'stroke-width': 1 });
-    const tx = mk('text', { x: ML - 10, y: y + 4, 'text-anchor': 'end',
-      'font-family': 'Geist Mono, monospace', 'font-size': 11, fill: '#94a3b8' });
-    tx.textContent = `${v >= 0 ? '+' : ''}${Math.round(v * 100)}%`;
-  }
-  // zero line
-  mk('line', { x1: ML, y1: Y(0), x2: W - MR, y2: Y(0), stroke: '#cbd5e1', 'stroke-width': 1, 'stroke-dasharray': '4 4' });
-  // month labels
-  [3, 6, 9, 12].forEach(m => {
-    const i = months.indexOf(m); if (i < 0) return;
-    const tx = mk('text', { x: X(i), y: H - 8, 'text-anchor': 'middle',
-      'font-family': 'Geist Mono, monospace', 'font-size': 11, fill: '#94a3b8' });
-    tx.textContent = m === 12 ? '1 year' : `${m}mo`;
-  });
-
-  const path = (qs, close) => {
-    const up = B(qs[0]).map((v, i) => `${i ? 'L' : 'M'} ${X(i).toFixed(1)} ${Y(v).toFixed(1)}`).join(' ');
-    if (!close) return up;
-    const dn = B(qs[1]).map((v, i) => `L ${X(B(qs[1]).length - 1 - i).toFixed(1)} ${Y(B(qs[1])[B(qs[1]).length - 1 - i]).toFixed(1)}`).join(' ');
-    return `${up} ${dn} Z`;
+function perfChart(host, legend, books, win) {
+  const allDates = [...new Set(books.flatMap((b) => b.series.map((p) => p.d)))].sort();
+  if (!allDates.length) { host.innerHTML = `<div class="empty">No data</div>`; return; }
+  const last = allDates[allDates.length - 1];
+  const back = { "1M": 31, "3M": 92 }[win];
+  let start = allDates[0];
+  if (back) { const t = new Date(last); t.setDate(t.getDate() - back); start = t.toISOString().slice(0, 10); }
+  const dates = allDates.filter((d) => d >= start);
+  const maps = books.map((b) => new Map(b.series.map((p) => [p.d, p])));
+  // SPY: take it from whichever book has a SPY print on each date.
+  const spyAt = (d) => { for (const m of maps) { const p = m.get(d); if (p && isNum(p.spy)) return p.spy; } return null; };
+  // Forward-fill at most 5 calendar days: a longer hole is a logging gap, and
+  // the line should break there instead of drawing a flat month that never happened.
+  const ffill = (arr) => {
+    let lv = null, ld = null;
+    return arr.map((v, i) => {
+      if (isNum(v)) { lv = v; ld = dates[i]; return v; }
+      if (ld && (new Date(dates[i]) - new Date(ld)) / 86400000 <= 5) return lv;
+      return null;
+    });
   };
-  // one hue, two depths: 90% band then 50% band, then the median line
-  mk('path', { d: path(['95', '5'], true), fill: 'rgba(37,99,235,0.08)' });
-  mk('path', { d: path(['75', '25'], true), fill: 'rgba(37,99,235,0.18)' });
-  mk('path', { d: path(['50'], false), fill: 'none', stroke: '#2563eb',
-    'stroke-width': 2.25, 'stroke-linejoin': 'round', 'stroke-linecap': 'round' });
 
-  // terminal labels at the right edge
-  const lastI = months.length - 1;
-  [['95', 'best 5%'], ['50', 'median'], ['5', 'worst 5%']].forEach(([q, lab]) => {
-    const v = B(q)[lastI];
-    const tx = mk('text', { x: W - MR - 4, y: Y(v) + (q === '5' ? 12 : q === '95' ? -5 : -6),
-      'text-anchor': 'end', 'font-family': 'Geist Mono, monospace', 'font-size': 11,
-      fill: q === '50' ? '#2563eb' : '#94a3b8', 'font-weight': q === '50' ? 600 : 400 });
-    tx.textContent = `${lab} ${pct(v, 0)}`;
+  const series = books.map((b, k) => {
+    const raw = dates.map((d) => maps[k].get(d)?.eq ?? null);
+    const firstI = raw.findIndex(isNum);
+    const filled = ffill(raw);
+    const base = filled[firstI];
+    return { label: b.name, color: BOOK_COLOR[b.id], values: filled.map((v) => (isNum(v) ? (v / base) * 100 : null)) };
   });
+  const spyRaw = ffill(dates.map(spyAt));
+  const s0 = spyRaw.find(isNum);
+  series.push({ label: "SPY", color: "var(--spy)", dash: true, width: 1.5, values: spyRaw.map((v) => (isNum(v) ? (v / s0) * 100 : null)) });
 
-  const t = mc.terminal_1yr_pct;
-  const cells = [
-    ['P(−20% drawdown, 6mo)', pctu(mc.p_dd20_6mo)],
-    ['P(down year)', pctu(mc.p_neg_1yr)],
-    ['1-yr median outcome', pct(parseFloat(t['50']))],
-    ['5th … 95th percentile', `${pct(parseFloat(t['5']), 0)} … ${pct(parseFloat(t['95']), 0)}`],
+  legend.innerHTML = series.map((s) => {
+    const lastV = [...s.values].reverse().find(isNum);
+    return `<span>${sw(s.color, s.dash ? "dash" : "line")}${esc(s.label)} <b class="tnum ${cls(lastV - 100)}" style="font-weight:600">${pct((lastV - 100) / 100)}</b></span>`;
+  }).join("");
+  lineChart(host, {
+    dates, series, height: window.innerWidth > 1080 ? 470 : 280, zero: 100, aria: "Books indexed to 100 vs SPY",
+    yFmt: (v) => v.toFixed(0), tipFmt: (v) => `${v.toFixed(1)} <span class="muted">(${pct((v - 100) / 100)})</span>`,
+  });
+}
+
+function latestCard(r) {
+  if (!r || !r.latest) return "";
+  const rows = r.latest.map((e) => `<a class="list-row" href="#/research" style="display:flex">
+    <div class="what"><div style="display:flex;justify-content:space-between;gap:8px;align-items:center">
+      <span class="mono ink2">${esc(e.id)}</span>${statusTag(e.status)}</div>
+      <div style="font-weight:600;margin-top:2px">${esc(e.title)}</div>
+      <div class="ink2 clamp2" style="font-size:12.5px;margin-top:2px">${esc(e.key)}</div></div></a>`).join("");
+  return card("Latest from the ledger", rows, { sub: "Most recently dated research entries" });
+}
+function statusTag(st) {
+  const label = st === "PRE-REGISTERED" ? "Pre-registered" : st[0] + st.slice(1).toLowerCase();
+  return `<span class="pill ${st}"><span class="dot"></span>${label}</span>`;
+}
+
+function metaCard(meta) {
+  if (!meta) return card("Meta-book allocator", `<div class="empty">No shadow allocator log yet</div>`, { sub: "Shadow only" });
+  const stale = (Date.now() - new Date(meta.d).getTime()) / 86400000 > 7;
+  const rows = Object.entries(meta.weights).map(([k, w]) => `
+    <tr><td><span style="display:inline-flex;gap:8px;align-items:center"><i class="swatch" style="background:${BOOK_COLOR[k]}"></i>${{ champion: "Champion", challenger: "Challenger", volbot: "VolBot" }[k] || esc(k)}</span></td>
+      <td style="width:55%"><div class="wbar"><div class="track"><div class="fill" style="width:${(w || 0) * 100}%;background:${BOOK_COLOR[k]}"></div></div><span class="tnum">${pct(w, 1, false)}</span></div></td></tr>`).join("");
+  return card("Meta-book allocator", `<div class="tbl-wrap"><table><tbody>${rows}</tbody></table></div>`, {
+    sub: `ERC shadow weights · not traded · as of ${dlong(meta.d)}`,
+    right: stale ? `<span class="pill missed" title="The shadow log has not been written for over a week"><span class="dot"></span>Stale</span>` : "",
+    foot: `${meta.obs_days} common days observed. ${esc(meta.note)}`,
+  });
+}
+
+// ───────────────────────────── Book detail ─────────────────────────────
+async function renderBook(view, id) {
+  const b = await api(`/api/book/${id}`);
+  setAsOf(null);
+  const s = b.stats, det = b.detail || {}, color = BOOK_COLOR[id];
+  const bookTabs = seg("book", [{ v: "champion", label: "Champion" }, { v: "challenger", label: "Challenger" }, { v: "volbot", label: "VolBot" }], id);
+
+  const kpis = [
+    { k: "Equity", v: money(s.equity), s: `from ${money(s.start_equity)} · ${dshort(s.start)}` },
+    { k: "Last session", v: `<span class="${cls(s.day_pnl)}">${money(s.day_pnl, { signed: true, cents: true })}</span>`, s: pct(s.day_pct, 2) },
+    { k: "Return", v: pct(s.total_return), cls: cls(s.total_return), s: `SPY ${pct(s.spy_return)} same window` },
+    { k: "vs SPY", v: pct(s.vs_spy), cls: cls(s.vs_spy), s: "price return" },
+    { k: "Drawdown", v: pct(s.drawdown, 1), s: `max ${pct(s.max_drawdown, 1)}` },
+    { k: "Sharpe (live)", v: num(s.sharpe), s: `${s.obs} obs · vol ${pct(s.vol, 1, false)}` },
   ];
-  if (mc.p_beat_bench_1yr != null) cells.push(['P(beat SPY, 1yr)', pctu(mc.p_beat_bench_1yr)]);
-  probs.innerHTML = cells.map(([k, v]) =>
-    `<div class="fan-prob"><div class="metric-label">${k}</div><div class="fan-prob-val">${v}</div></div>`).join('');
+
+  view.innerHTML = `
+    <div class="page-head">
+      <div><div class="crumb"><a href="#/desk">Desk</a> / Books</div>
+        <h1 style="display:flex;align-items:center;gap:10px"><i class="swatch" style="background:${color};width:12px;height:12px"></i>${esc(b.name)} ${statusPill(b.status)}</h1>
+        <p>${esc(b.desc)}</p></div>
+      ${bookTabs}
+    </div>
+    ${s.obs && s.obs < 126 ? `<div class="callout" style="margin-bottom:16px"><span class="bar"></span><div><b>${s.obs} sessions is a short sample.</b> A live Sharpe over fewer than ~6 months has a confidence interval wider than the number itself.${b.verdict ? " The graded verdict is the backtest evidence at the bottom of this page." : ""}</div></div>` : ""}
+    ${kpiStrip(kpis)}
+    <div class="stack mt">
+      ${card("Equity vs SPY", `<div class="card-body"><div class="legend">
+          <span>${sw(color)}${esc(b.name)}</span><span>${sw("", "dash")}SPY, same starting capital</span></div>
+          <div class="chart mt" id="eq"></div>
+          <div class="muted" style="font-size:12px;margin:10px 0 4px">Drawdown from running peak</div>
+          <div class="chart" id="dd"></div></div>`, { sub: `${dlong(s.start)} to ${dlong(s.last)}`,
+          foot: (b.gaps || []).length ? "Log gaps, joined by a straight line: " + b.gaps.map((g) => `${dshort(g.from)} to ${dshort(g.to)} (${g.missing} sessions missing)`).join("; ") + "." : "" })}
+      ${id === "volbot" ? volbotSections(det) : equitySections(det, id)}
+      ${b.verdict ? verdictCard(b.verdict) : ""}
+    </div>`;
+  bindSeg(view, "book", (v) => (location.hash = `#/book/${v}`));
+
+  const dates = b.series.map((p) => p.d);
+  const s0 = b.series.find((p) => isNum(p.spy))?.spy;
+  const e0 = b.series[0]?.eq;
+  lineChart($("#eq", view), {
+    dates, height: 260, aria: "Equity vs SPY",
+    series: [
+      { label: "SPY (same capital)", color: "var(--spy)", dash: true, width: 1.5, values: b.series.map((p) => (isNum(p.spy) && s0 ? (p.spy / s0) * e0 : null)) },
+      { label: b.name, color, values: b.series.map((p) => p.eq), fill: true, fillOpacity: 0.07 },
+    ],
+    yFmt: (v) => (v < 0 ? MINUS : "") + "$" + Math.abs(v).toLocaleString("en-US", { maximumFractionDigits: 0 }),
+    tipFmt: (v) => money(v, { cents: true }),
+  });
+  lineChart($("#dd", view), {
+    dates, height: 110, zero: 0, aria: "Drawdown", ticks: 2,
+    series: [{ label: "Drawdown", color: "var(--neg)", width: 1.5, values: b.series.map((p) => p.dd), fill: true, fillOpacity: 0.12 }],
+    yFmt: (v) => pct(v, 0), tipFmt: (v) => pct(v, 2),
+  });
+
+  const mb = view.querySelector("[data-more]");
+  if (mb) mb.addEventListener("click", () => {
+    view.querySelectorAll("tr.extra").forEach((tr) => (tr.hidden = false));
+    mb.remove();
+  });
+  if (det.error) return;
+  if (id === "volbot") drawVolbot(view, det); else drawEquityBook(view, det, id);
 }
 
-async function loadVerdict() {
-  try { VERDICT = await (await fetch('/static/verdict.json')).json(); }
-  catch (err) { document.getElementById('evidence').style.display = 'none'; return; }
-  const grid = document.getElementById('verdict-grid');
-  const order = ['champion', 'challenger', 'spy'];
-  grid.innerHTML = order.filter(k => VERDICT.books[k])
-    .map(k => verdictCard(VERDICT.books[k], k)).join('');
-  renderFan('champion');
-  document.getElementById('fan-btns').addEventListener('click', e => {
-    const btn = e.target.closest('button'); if (!btn) return;
-    document.querySelectorAll('#fan-btns button').forEach(b => b.classList.toggle('active', b === btn));
-    renderFan(btn.dataset.book);
+function equitySections(det, id) {
+  if (det.error) return errorBox(det.error);
+  const w = det.weights;
+  const cur = w.current || [];
+  const dust = cur.filter((p) => p.w < 0.005);
+  const hold = cur.filter((p) => p.w >= 0.005).map((p, i) => {
+    const key = (w.symbols || []).includes(p.sym) ? p.sym : p.sym === "SHV" ? "Cash" : "Other";
+    const c = colorFor(w.symbols, key);
+    return `<tr><td><span class="mono">${esc(p.sym)}</span>${p.sym === "SHV" ? ' <span class="muted">cash sleeve</span>' : ""}</td>
+      <td style="width:58%"><div class="wbar"><div class="track"><div class="fill" style="width:${Math.min(100, p.w * 100)}%;background:${c}"></div></div><span class="tnum" style="min-width:48px;text-align:right">${pct(p.w, 1, false)}</span></div></td></tr>`;
+  }).join("");
+  const turn = w.turnover || [];
+  const avgT = turn.length ? turn.reduce((a, t) => a + (t.v || 0), 0) / turn.length : null;
+  const ov = det.overlay, rg = det.regime;
+  const lastOv = ov.series.length ? ov.series[ov.series.length - 1].v : null;
+
+  return `
+    <div class="grid g-1-1">
+      ${card("Holdings", `<div class="tbl-wrap"><table><thead><tr><th>Symbol</th><th>Target weight</th></tr></thead><tbody>${hold || `<tr><td colspan="2" class="empty">No weights logged</td></tr>`}</tbody></table></div>`
+        + (dust.length ? `<div class="card-foot">${dust.length} more under 0.5%: ${dust.map((p) => esc(p.sym)).join(", ")} (${pct(dust.reduce((a, p) => a + p.w, 0), 1, false)} combined)</div>` : ""),
+        { sub: `Target weights logged ${dlong(w.as_of)}. Live fills can drift from these.` })}
+      ${card("Allocation over time", `<div class="card-body"><div class="legend" id="alloc-legend"></div><div class="chart mt" id="alloc"></div></div>`,
+        { sub: "Top six symbols by average weight; everything else in Other" })}
+    </div>
+    <div class="grid g-1-1">
+      ${card("Risk overlay", `<div class="card-body"><div class="chart" id="overlay"></div>
+          ${rg ? `<div class="muted" style="font-size:12px;margin:12px 0 6px;display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap"><span>Regime by session</span>
+            <span class="legend" style="font-size:12px"><span><i class="swatch rg-RISK_ON"></i>Risk-on</span><span><i class="swatch rg-CHOPPY"></i>Choppy</span><span><i class="swatch rg-RISK_OFF"></i>Risk-off</span></span></div>
+            <div class="regime-strip" id="regime"></div>` : ""}</div>`,
+        { sub: esc(ov.label), right: `<span class="tnum" style="font-weight:600">${isNum(lastOv) ? (id === "champion" ? pct(lastOv, 0, false) : num(lastOv, 2)) : "—"}</span>`,
+          foot: esc(ov.target_note) + (rg?.signals ? ` Latest vote ${dshort(rg.signals.at)}: vol ${esc(rg.signals.vol)}, trend ${esc(rg.signals.trend)}, flight ${esc(rg.signals.flight)} → <b>${esc(rg.current)}</b>, strategy ${esc(rg.strategy)}.` : "") })}
+      ${card("Turnover", `<div class="card-body"><div class="chart" id="turn"></div></div>`,
+        { sub: "One-way: ½ × Σ|Δweight| between logged sessions",
+          right: avgT != null ? `<span class="tnum" style="font-weight:600">${(avgT * 252).toFixed(0)}× / yr</span>` : "",
+          foot: avgT != null ? `Average ${pct(avgT, 1, false)} per session over ${turn.length} sessions, annualised at 252 days. Every unit of turnover pays the spread.` : "" })}
+    </div>
+    ${card("Rebalances", rebalanceTable(det.rebalances), { sub: `${det.rebalances.length} sessions with orders, newest first` })}`;
+}
+
+function colorFor(symbols, key) {
+  if (key === "Cash") return "var(--s-cash)";
+  if (key === "Other") return "var(--s-other)";
+  const i = (symbols || []).indexOf(key);
+  return SERIES_VARS[i] || "var(--s-other)";
+}
+
+function rebalanceTable(rows) {
+  if (!rows.length) return `<div class="empty">No rebalances logged</div>`;
+  const notes = rows.some((r) => r.note);
+  const body = rows.map((r, i) => `<tr${i >= 12 ? ' class="extra" hidden' : ""}>
+    <td class="tnum" style="white-space:nowrap">${dshort(r.d)}</td>
+    <td class="r tnum">${r.orders}</td>
+    <td class="r tnum">${pct(r.turnover, 1, false)}</td>
+    <td>${r.moves.map((m) => `<span class="chip"><span class="${cls(m.dw)}">${sign(m.dw)}${Math.abs(m.dw * 100).toFixed(1)}</span> ${esc(m.sym)}</span>`).join("") || '<span class="muted">rounding only</span>'}</td>
+    ${notes ? `<td class="muted hide-sm" style="font-size:12px">${esc(r.note)}</td>` : ""}</tr>`).join("");
+  return `<div class="tbl-wrap"><table><thead><tr><th>Date</th><th class="r">Orders</th><th class="r">Turnover</th><th>Largest weight moves (pts)</th>${notes ? '<th class="hide-sm">Note</th>' : ""}</tr></thead><tbody>${body}</tbody></table></div>`
+    + (rows.length > 12 ? `<button type="button" class="more-btn" data-more>Show all ${rows.length} sessions</button>` : "");
+}
+
+function drawEquityBook(view, det, id) {
+  const w = det.weights;
+  const keys = (w.symbols || []).map((k) => ({ key: k, label: k === "Cash" ? "Cash (SHV)" : k, color: colorFor(w.symbols, k) }));
+  $("#alloc-legend", view).innerHTML = keys.map((k) => `<span>${sw(k.color, "")}${esc(k.label)}</span>`).join("");
+  stackChart($("#alloc", view), { dates: w.rows.map((r) => r.d), keys, rows: w.rows, height: 230 });
+
+  const ov = det.overlay;
+  const series = [{ label: id === "champion" ? "Gross exposure" : "Vol scaler", color: "var(--accent)", values: ov.series.map((p) => p.v), fill: true, fillOpacity: 0.08 }];
+  lineChart($("#overlay", view), {
+    dates: ov.series.map((p) => p.d), series, height: 190, yMin: 0, yMax: 1, aria: ov.label,
+    yFmt: (v) => (id === "champion" ? pct(v, 0, false) : v.toFixed(2)),
+    tipFmt: (v) => (id === "champion" ? pct(v, 1, false) : v.toFixed(3)),
+    extraTip: ov.est_vol ? (i) => [{ label: "Est. vol", value: pct(ov.est_vol[i]?.v, 1, false) }] : null,
+  });
+  if (det.regime) {
+    $("#regime", view).innerHTML = det.regime.series.map((r) => `<i class="rg-${esc(r.regime)}" style="flex:1" title="${dshort(r.d)} · ${esc(r.regime)} · ${esc(r.strategy)}"></i>`).join("");
+  }
+  barChart($("#turn", view), { dates: w.turnover.map((t) => t.d), values: w.turnover.map((t) => t.v), color: "var(--accent)", height: 190, label: "Turnover", yFmt: (v) => pct(v, 0, false), aria: "Turnover per session" });
+}
+
+function volbotSections(det) {
+  if (det.error) return errorBox(det.error);
+  const ts = det.trade_stats, st = det.state;
+  const trades = det.trades.map((t) => `<tr>
+      <td class="tnum" style="white-space:nowrap">${dshort(t.entry)} → ${dshort(t.exit)}</td>
+      <td><span class="mono">${esc(t.u)}</span> <span class="muted">exp ${dshort(t.exp)}</span></td>
+      <td class="r tnum">${t.qty}</td>
+      <td class="tnum hide-sm muted">${esc(t.strikes)}</td>
+      <td class="r tnum">${money(t.credit, { cents: true })}</td>
+      <td class="r tnum">${money(t.exit_cost, { cents: true })}</td>
+      <td class="r tnum ${cls(t.pnl)}" style="font-weight:600">${money(t.pnl, { signed: true, cents: true })}</td>
+      <td>${esc(t.reason)}</td></tr>`).join("");
+  const flags = det.flags || {};
+  return `
+    <div class="callout warn"><span class="bar"></span><div><b>Entries halted.</b> ${esc(det.note)}. Open rungs: ${st.open_rungs}. Last entries: ${Object.entries(st.last_entry || {}).map(([u, d]) => `${esc(u)} ${dshort(d)}`).join(", ") || "none"}.</div></div>
+    ${card("Closed trades", `<div class="tbl-wrap"><table><thead><tr><th>Held</th><th>Underlying</th><th class="r">Qty</th><th class="hide-sm">Put / call spreads</th><th class="r">Credit</th><th class="r">Exit</th><th class="r">P&amp;L</th><th>Reason</th></tr></thead><tbody>${trades || `<tr><td colspan="8" class="empty">No closed trades</td></tr>`}</tbody></table></div>`,
+      { sub: `${ts.n} condors closed · ${ts.wins} winners`, right: `<span class="tnum ${cls(ts.realized)}" style="font-weight:600">${money(ts.realized, { signed: true, cents: true })} realised</span>` })}
+    <div class="grid g-1-1">
+      ${card("Implied vol by underlying", `<div class="card-body"><div class="legend"><span>${sw("var(--s1)")}SPY</span><span>${sw("var(--s2)")}QQQ</span><span>${sw("var(--s3)")}IWM</span></div><div class="chart mt" id="iv"></div></div>`,
+        { sub: "Index vol (VIX / VXN / RVX) logged each session",
+          foot: `Latest: term structure ${flags.contango ? "in contango" : flags.contango === false ? "inverted" : "unknown"}; rich-vol tercile ${Object.entries(flags.rich || {}).filter(([, v]) => v).map(([u]) => u).join(", ") || "none"}.` })}
+      ${card("Capital at risk", `<div class="card-body"><div class="chart" id="atrisk"></div></div>`, { sub: "Max loss of open condors / equity", foot: esc(det.overlay.target_note) })}
+    </div>`;
+}
+
+function drawVolbot(view, det) {
+  const d = det.iv.map((r) => r.d);
+  lineChart($("#iv", view), {
+    dates: d, height: 200, aria: "Implied vol",
+    series: [["SPY", "var(--s1)"], ["QQQ", "var(--s2)"], ["IWM", "var(--s3)"]].map(([k, c]) => ({ label: k, color: c, values: det.iv.map((r) => r[k]) })),
+    yFmt: (v) => v.toFixed(0), tipFmt: (v) => v.toFixed(1),
+  });
+  lineChart($("#atrisk", view), {
+    dates: det.overlay.series.map((p) => p.d), height: 200, yMin: 0, yMax: 0.25, zero: 0, aria: "Capital at risk",
+    series: [{ label: "At risk", color: "var(--accent)", values: det.overlay.series.map((p) => p.v ?? 0), fill: true, fillOpacity: 0.1 }],
+    yFmt: (v) => pct(v, 0, false), tipFmt: (v) => pct(v, 1, false),
+    extraTip: (i) => [{ label: "Max loss", value: money(det.overlay.series[i].usd) }, { label: "Open rungs", value: String(det.overlay.series[i].rungs) }],
   });
 }
 
-/* ── Boot ── */
-initGradient();
-initReveal();
-loadVerdict().then(loadData);
-window.addEventListener('resize', () => {
-  const active = document.querySelector('#range-btns button.active');
-  if (active && CHART.series.length) renderChart(active.dataset.range);
+function verdictCard(v) {
+  const suff = v.sufficiency || "—";
+  const st = suff === "CONFIRMED" ? "PASS" : suff === "INSUFFICIENT" ? "FAIL" : "INCONCLUSIVE";
+  const ci = v.sharpe_ci95 ? `${num(v.sharpe_ci95[0])} to ${num(v.sharpe_ci95[1])}` : "—";
+  return card("Backtest evidence", kpiStrip([
+    { k: "Grade", v: `<span class="pill ${st}" style="font-size:12.5px"><span class="dot"></span>${esc(suff)}</span>`, s: `${num(v.years, 1)} yrs of history` },
+    { k: "Sharpe", v: num(v.sharpe), s: `95% CI ${ci}` },
+    { k: "Deflated Sharpe", v: pct(v.dsr, 1, false), s: `K = ${v.k_trials} configs tried` },
+    { k: "CAGR / vol", v: `${pct(v.cagr, 1, false)}`, s: `vol ${pct(v.vol, 1, false)} · β ${num(v.beta)}` },
+    { k: "Max drawdown", v: pct(v.maxdd, 1), s: dlong(v.maxdd_date) },
+    { k: "P(down year)", v: pct(v.p_neg_1yr, 0, false), s: `P(−20% DD in 1y) ${pct(v.p_dd20_1yr, 0, false)}` },
+  ]).replace('class="kpis"', 'class="kpis" style="border:0;box-shadow:none;border-top:1px solid var(--line);border-radius:0;margin-top:12px;--n:6"'),
+  { sub: `Backtest, not live. Graded by the verdict engine, ${esc(v.generated || "")}` });
+}
+
+// ───────────────────────────── Research ─────────────────────────────
+const STATUSES = ["PASS", "FAIL", "INCONCLUSIVE", "MEASURED", "PRE-REGISTERED"];
+async function renderResearch(view) {
+  const d = await api("/api/research");
+  setAsOf(null);
+  if (!d.available) {
+    view.innerHTML = `<div class="page-head"><div><h1>Research</h1><p>The pre-registered experiment ledger.</p></div></div>
+      <div class="callout warn"><span class="bar"></span><div><b>Ledger not found.</b> ${esc(d.hint)}</div></div>`;
+    return;
+  }
+  const ex = d.experiments;
+  const count = (s) => ex.filter((e) => e.status === s).length;
+  const premise = ex.filter((e) => e.premise_passed).length;
+  let filter = "ALL", q = "";
+
+  view.innerHTML = `
+    <div class="page-head"><div><h1>Research</h1>
+      <p>Pre-registered experiments: the bar is written before the data is touched, and kills are logged as carefully as wins.</p></div></div>
+    <div class="callout" style="margin-bottom:16px"><span class="bar"></span><div>
+      <b>${count("FAIL")} of ${ex.length} entries failed, ${count("PASS")} passed.</b> In ${premise} of the failures the premise held and the trade still lost: the signal was real, and execution or cost killed it.</div></div>
+    <div class="toolbar">
+      ${seg("st", [{ v: "ALL", label: "All", count: ex.length }].concat(STATUSES.map((s) => ({ v: s, label: s === "PRE-REGISTERED" ? "Pre-registered" : s[0] + s.slice(1).toLowerCase(), count: count(s) }))), "ALL")}
+      <input class="search" type="search" placeholder="Search experiments" aria-label="Search experiments">
+    </div>
+    <section class="card" id="exlist"></section>
+    <p class="muted" style="font-size:12px;margin-top:10px">Parsed from <span class="mono">${esc(d.source.split("/").slice(-2).join("/"))}</span>, modified ${ago(d.modified)}. Status is read from each entry's Status line and result headers; a kill anywhere in an entry counts as FAIL.</p>`;
+
+  const list = $("#exlist", view);
+  const draw = () => {
+    const ql = q.toLowerCase();
+    const rows = ex.filter((e) => (filter === "ALL" || e.status === filter) &&
+      (!ql || (e.id + " " + e.title + " " + e.key + " " + e.status_text).toLowerCase().includes(ql)));
+    list.innerHTML = rows.length ? rows.map(expRow).join("") : `<div class="empty">No experiments match</div>`;
+  };
+  draw();
+  bindSeg(view, "st", (v) => { filter = v; draw(); });
+  $(".search", view).addEventListener("input", (e) => { q = e.target.value; draw(); });
+  list.addEventListener("click", (e) => {
+    const b = e.target.closest(".exp > button");
+    if (!b) return;
+    const row = b.parentElement;
+    row.classList.toggle("open");
+    b.setAttribute("aria-expanded", row.classList.contains("open"));
+  });
+}
+
+function expRow(e) {
+  const label = e.status === "PRE-REGISTERED" ? "Pre-registered" : e.status[0] + e.status.slice(1).toLowerCase();
+  return `<div class="exp"><button type="button" aria-expanded="false">
+    <div class="id">${esc(e.id)}</div>
+    <div class="body"><div class="t">${esc(e.title)}</div><div class="key">${esc(e.key)}</div></div>
+    <div class="meta"><span class="pill ${e.status}"><span class="dot"></span>${label}</span>
+      ${e.premise_passed ? `<span class="pill tag" title="A premise gate passed before the trade failed">premise held</span>` : ""}
+      <span class="dt">${dshort(e.last_date || e.registered)}</span></div>
+  </button>
+  <div class="more"><dl>
+    <dt>Status line</dt><dd>${esc(e.status_text) || "—"}</dd>
+    <dt>Registered</dt><dd class="tnum">${dlong(e.registered)}</dd>
+    ${e.k ? `<dt>Trials</dt><dd>${esc(e.k)}</dd>` : ""}
+  </dl></div></div>`;
+}
+
+// ───────────────────────────── Health ─────────────────────────────
+async function renderHealth(view) {
+  const [h, d] = await Promise.all([api("/api/health"), api("/api/desk")]);
+  setAsOf(d.generated);
+  const runs = h.runs || [];
+  const conclusionPill = (r) => {
+    if (!r) return `<span class="pill"><span class="dot"></span>No runs</span>`;
+    const c = r.status !== "completed" ? "scheduled" : r.conclusion === "success" ? "ran" : r.conclusion === "failure" ? "failed" : "missed";
+    const lab = r.status !== "completed" ? r.status.replace("_", " ") : r.conclusion;
+    return `<span class="pill ${c}"><span class="dot"></span>${esc(lab)}</span>`;
+  };
+  const tiles = d.books.map((b) => {
+    const fails = b.status.fails_recent || 0;
+    return { k: b.name, v: statusPill(b.status), s: `log ${dshort(b.status.last_log)} · Actions ${b.status.gh ? ago(b.status.gh.at) : "n/a"}${fails ? ` · ${fails} failed in last 40` : ""}` };
+  });
+  tiles.push({ k: "Alerts, last 30 days", v: String(d.alerts_30d), s: h.alerts.length ? `latest ${dshort(h.alerts[0].at)}` : "none logged" });
+
+  const runRows = runs.slice(0, 18).map((r) => `<tr>
+    <td>${conclusionPill(r)}</td>
+    <td>${esc(r.workflowName)}</td>
+    <td class="muted hide-sm">${esc(r.event)}</td>
+    <td class="tnum" style="white-space:nowrap" title="${esc(r.createdAt)}">${ago(r.createdAt)}</td>
+    <td class="r tnum hide-sm">${r.updatedAt && r.createdAt ? Math.max(0, Math.round((new Date(r.updatedAt) - new Date(r.createdAt)) / 1000)) + "s" : "—"}</td></tr>`).join("");
+  const fresh = h.freshness.map((f) => `<tr><td>${esc(f.label)}<div class="muted mono" style="font-size:11px">${esc(f.path)}</div></td>
+    <td class="r tnum">${f.exists ? f.rows : "—"}</td><td class="r tnum">${f.exists ? dshort(f.last) : '<span class="neg">missing</span>'}</td></tr>`).join("");
+  const commits = h.commits.map((c) => `<div class="list-row"><div class="when" title="${esc(c.at)}">${ago(c.at)}</div>
+    <div class="what"><div class="s">${esc(c.subject)}</div><div class="muted" style="font-size:12px"><span class="mono">${esc(c.sha)}</span> · ${esc(c.author)}</div></div></div>`).join("");
+  const alerts = h.alerts.map((a) => `<div class="list-row"><span class="sev ${a.severity}" title="${a.severity}"></span>
+    <div class="what"><div class="clamp2" title="${esc(a.msg)}"><b style="font-weight:600">${esc(a.category)}</b> <span class="ink2">${esc(a.msg)}</span></div></div>
+    <div class="when" style="text-align:right">${dshort(a.at)} ${a.at.slice(11, 16)}</div></div>`).join("");
+
+  view.innerHTML = `
+    <div class="page-head"><div><h1>Health</h1><p>Did every job run, is every log current, and what did the bots complain about.</p></div></div>
+    ${kpiStrip(tiles)}
+    <div class="grid g-2-1 mt">
+      ${card("Workflow runs", h.runs_error ? `<div class="empty">GitHub Actions unavailable: ${esc(h.runs_error)}</div>` :
+        `<div class="tbl-wrap"><table><thead><tr><th>Result</th><th>Workflow</th><th class="hide-sm">Trigger</th><th>Started</th><th class="r hide-sm">Duration</th></tr></thead><tbody>${runRows}</tbody></table></div>`,
+        { sub: "Most recent 18, via the local gh CLI" })}
+      ${card("Data freshness", `<div class="tbl-wrap"><table><thead><tr><th>Log</th><th class="r">Rows</th><th class="r">Last row</th></tr></thead><tbody>${fresh}</tbody></table></div>`, { sub: "What this page is reading" })}
+    </div>
+    <div class="grid g-1-1 mt">
+      ${card("Alerts", alerts || `<div class="empty">alerts.log not found</div>`, { sub: h.alerts_path ? "alerts.log, newest first" : "alerts.log is gitignored and absent here" })}
+      ${card("Recent commits", commits, { sub: "Bot log commits and code changes" })}
+    </div>`;
+}
+
+// ───────────────────────────── shell ─────────────────────────────
+function setAsOf(iso) {
+  const el = $("#asof");
+  if (iso) el.textContent = `Updated ${new Date(iso).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })}`;
+}
+async function route() {
+  const view = $("#view");
+  const h = location.hash.replace(/^#\/?/, "") || "desk";
+  const [page, arg] = h.split("/");
+  document.querySelectorAll(".nav a").forEach((a) => a.classList.toggle("active", a.dataset.nav === page));
+  hideTip();
+  view.innerHTML = loading();
+  const titles = { desk: "Desk", book: "Book", research: "Research", health: "Health" };
+  document.title = `${titles[page] || "Desk"} · Trading Desk`;
+  try {
+    if (page === "book") await renderBook(view, ["champion", "challenger", "volbot"].includes(arg) ? arg : "champion");
+    else if (page === "research") await renderResearch(view);
+    else if (page === "health") await renderHealth(view);
+    else await renderDesk(view);
+  } catch (e) {
+    console.error(e);
+    view.innerHTML = errorBox(e);
+  }
+}
+window.addEventListener("hashchange", route);
+$("#refresh").addEventListener("click", async () => {
+  const b = $("#refresh");
+  b.classList.add("spin");
+  cache.clear();
+  await $("#theme").addEventListener("click", () => {
+  const root = document.documentElement;
+  const cur = root.dataset.theme || (matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light");
+  const next = cur === "dark" ? "light" : "dark";
+  root.dataset.theme = next;
+  try { localStorage.setItem("desk-theme", next); } catch (e) {}
+  route();  // charts read CSS vars at draw time only via var(), but redraw keeps hover state clean
 });
+route();
+  b.classList.remove("spin");
+});
+$("#theme").addEventListener("click", () => {
+  const root = document.documentElement;
+  const cur = root.dataset.theme || (matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light");
+  const next = cur === "dark" ? "light" : "dark";
+  root.dataset.theme = next;
+  try { localStorage.setItem("desk-theme", next); } catch (e) {}
+  route();  // charts read CSS vars at draw time only via var(), but redraw keeps hover state clean
+});
+route();
