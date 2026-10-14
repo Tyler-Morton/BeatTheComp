@@ -175,8 +175,13 @@ def get_live_snapshot() -> dict | None:
 
 # ── Rebalancing ────────────────────────────────────────────────────────────────
 
-def rebalance(target_weights: dict[str, float]) -> list[dict]:
+def rebalance(target_weights: dict[str, float],
+              buy_only: set[str] | None = None) -> list[dict]:
     """Buy and sell whatever it takes to move the account toward target_weights.
+
+    buy_only: if given, buys are restricted to these symbols (sells unaffected).
+    The drawdown breaker passes {CASH_ASSET} so a de-risk day can never add risk,
+    even if prices moved between computing targets and placing orders.
 
     Returns the list of orders we actually fired off.
     """
@@ -315,6 +320,11 @@ def rebalance(target_weights: dict[str, float]) -> list[dict]:
 
         # ── Step 3: do the buying, sized to the cash we really have ──────────
         buy_syms = [s for s, d in diffs.items() if d > MIN_ORDER_NOTIONAL]
+        if buy_only is not None:
+            blocked = sorted(s for s in buy_syms if s not in buy_only)
+            if blocked:
+                logger.warning("BREAKER: blocked buys (de-risk only): %s", blocked)
+            buy_syms = [s for s in buy_syms if s in buy_only]
         buy_syms.sort(key=lambda s: -diffs[s])   # buy the biggest targets first, in case we run short
         for sym in buy_syms:
             diff = diffs[sym]

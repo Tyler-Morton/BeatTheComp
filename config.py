@@ -35,6 +35,13 @@ MIN_SINGLE_WEIGHT = 0.0          # no floor; if something doesn't earn weight, i
 REBALANCE_DRIFT_THRESHOLD = 0.02 # only 2% of drift before we re-trade — keeps us close to target
 DRAWDOWN_CIRCUIT_BREAKER = 0.30  # don't hit the brakes until we're down 30% from the high
 IMPLAUSIBLE_VALUE_FRAC = 0.05    # an equity read below 5% of ATH is a broker glitch, not a loss
+# Breaker re-entry (2026-10-13). After this many sessions in BREAKER (de-risk only)
+# mode without recovering above the trip level, the high-water mark re-bases to
+# current equity and normal trading resumes. 63 ~= one quarter of trading days.
+# This is a SAFETY DEFAULT chosen so the book cannot freeze indefinitely (the
+# EXP-024 replica froze 136 sessions under the old rule) — it is NOT an optimized
+# or backtested parameter. Do not tune it on results.
+BREAKER_RESET_SESSIONS = 63
 MAX_PORTFOLIO_VOL = 0.90         # high ceiling on purpose — an all-3x-leveraged book naturally runs ~85% vol
 
 # ── Risk overlay (vol-targeting + optional ML throttle) ─────────────────────
@@ -133,5 +140,9 @@ REGIME_LOG = BASE_DIR / "regime_log.csv"
 WATCHLIST_LOG = BASE_DIR / "watchlist_log.csv"
 WATCHLIST_ALERTS = BASE_DIR / "watchlist_alerts.csv"
 ALERTS_LOG = BASE_DIR / "alerts.log"
+# Persisted breaker state: broker-equity high-water mark + breaker mode/session count.
+# A .csv on purpose: rebalance.yml commits root-level *.csv after every run, so the
+# state survives the fresh checkout each GitHub Actions run starts from.
+BREAKER_STATE_FILE = BASE_DIR / "breaker_state.csv"
 QUARTERLY_BACKTEST = BASE_DIR / "quarterly_backtest.csv"
 BACKTEST_RESULTS = BASE_DIR / "backtest_results.png"

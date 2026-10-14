@@ -17,6 +17,8 @@ import pandas as pd
 
 from config import (
     ALERTS_LOG,
+    BREAKER_RESET_SESSIONS,
+    BREAKER_STATE_FILE,
     DAILY_LOG,
     DRAWDOWN_CIRCUIT_BREAKER,
     IMPLAUSIBLE_VALUE_FRAC,
@@ -57,50 +59,195 @@ def _alert(message: str) -> None:
 
 # ── Individual checks ──────────────────────────────────────────────────────────
 
-def check_drawdown(portfolio_value: float) -> tuple[bool, str]:
-    """Pump the brakes if we've fallen too far from our best-ever value.
+# ── Drawdown circuit breaker (de-risk only) ───────────────────────────────────
+#
+# Rewritten 2026-10-13 (approved by Tyler). The old breaker measured drawdown from
+# the max of daily_log.csv (OPEN snapshots: $1,118.13 vs the true broker peak
+# $1,147.80) and, once tripped, blocked EVERY order — de-risking included — with no
+# re-entry rule, so the book could freeze in its post-loss composition forever
+# (the EXP-024 replica froze 136 sessions). Now:
+#   1. Reference = high-water mark of broker-reported equity, persisted in
+#      BREAKER_STATE_FILE and seeded from max(daily_log equity, broker history).
+#   2. Tripped (equity < (1 - DRAWDOWN_CIRCUIT_BREAKER) * HWM) => BREAKER mode:
+#      only risk-reducing trades (see derisk_targets); proceeds park in CASH_ASSET.
+#   3. Leaves BREAKER when equity is back at/above the trip level, or after
+#      BREAKER_RESET_SESSIONS sessions in BREAKER the HWM re-bases to current equity.
+# NOTE: backtest.py / perf_report.py / EXP-024 still model the OLD rule.
 
-    (The exact cutoff is DRAWDOWN_CIRCUIT_BREAKER over in config.)
+_BREAKER_FIELDS = ["hwm", "in_breaker", "breaker_sessions", "last_session", "updated_at"]
+
+
+def _load_breaker_state(path: Path) -> dict | None:
+    try:
+        if not path.exists():
+            return None
+        df = pd.read_csv(path)
+        if df.empty:
+            return None
+        r = df.iloc[-1]
+        hwm = float(r["hwm"])
+        if not np.isfinite(hwm) or hwm <= 0:
+            return None
+        return {
+            "hwm": hwm,
+            "in_breaker": bool(int(r["in_breaker"])),
+            "breaker_sessions": int(r["breaker_sessions"]),
+            "last_session": "" if pd.isna(r["last_session"]) else str(r["last_session"]),
+        }
+    except Exception as exc:
+        logger.error("Breaker state unreadable (%s) — re-seeding from history", exc)
+        return None
+
+
+def _save_breaker_state(state: dict, path: Path) -> None:
+    """Write the state atomically: temp file in the same dir, then os.replace."""
+    import tempfile
+    path = Path(path)
+    row = {k: state.get(k, "") for k in _BREAKER_FIELDS}
+    row["in_breaker"] = int(bool(row["in_breaker"]))
+    row["updated_at"] = datetime.now().isoformat(timespec="seconds")
+    fd, tmp = tempfile.mkstemp(dir=path.parent, prefix=".breaker_state.", suffix=".tmp")
+    try:
+        with os.fdopen(fd, "w") as f:
+            pd.DataFrame([row], columns=_BREAKER_FIELDS).to_csv(f, index=False)
+        os.replace(tmp, path)
+    except Exception:
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
+        raise
+
+
+def _seed_hwm(history_fn=None) -> float:
+    """Best available peak: max(daily_log portfolio_value, broker equity history)."""
+    candidates: list[float] = []
+    try:
+        path = Path(DAILY_LOG)
+        if path.exists():
+            df = pd.read_csv(path)
+            if "portfolio_value" in df.columns:
+                candidates.append(pd.to_numeric(df["portfolio_value"], errors="coerce").max())
+    except Exception as exc:
+        logger.warning("Breaker seed: daily_log unreadable (%s)", exc)
+    if history_fn is not None:
+        try:
+            hist = pd.to_numeric(pd.Series(list(history_fn())), errors="coerce")
+            candidates.append(hist[hist > 0].max())
+        except Exception as exc:
+            logger.warning("Breaker seed: broker equity history unavailable (%s)", exc)
+    vals = [float(v) for v in candidates if v is not None and np.isfinite(v) and v > 0]
+    return max(vals) if vals else 0.0
+
+
+def update_breaker(
+    equity: float,
+    today: str | None = None,
+    history_fn=None,
+    state_path: Path | None = None,
+) -> dict:
+    """Advance the breaker one session on a broker equity read and persist it.
+
+    history_fn: zero-arg callable returning broker equity history values; called
+    only when there is no state file yet (to seed the high-water mark).
+
+    Returns {"in_breaker", "hwm", "trip_level", "drawdown", "sessions", "event", "note"}
+    where event is one of: ok, tripped, derisk, recovered, reset, bad_read.
     """
-    # If we couldn't read the account (e.g. a broker timeout makes
-    # get_portfolio_value() return 0.0), don't mistake an *unreadable* balance for a
-    # -100% crash. Skip the check this run rather than firing a false circuit breaker.
-    if portfolio_value <= 0:
-        logger.warning(
-            "Drawdown check skipped — portfolio value unreadable (%.2f); "
-            "likely a broker connection issue, not a real loss.", portfolio_value
-        )
-        return True, ""
-    path = Path(DAILY_LOG)
-    if not path.exists():
-        return True, ""
-    df = pd.read_csv(path)
-    if df.empty or "portfolio_value" not in df.columns:
-        return True, ""
-    ath = pd.to_numeric(df["portfolio_value"], errors="coerce").max()
-    if ath <= 0 or np.isnan(ath):
-        return True, ""
-    # Same idea as the <= 0 guard above, but for *small* garbage rather than zero.
-    # On 2026-07-07 the broker handed back $0.30 on a ~$950 book: positive, so it
-    # slipped past that guard and fired a bogus -100% breaker. A long-only ETF book
-    # cannot physically lose 95%+ overnight — a reading that low is a bad read, not
-    # a loss, and the real 30% breaker below still catches anything genuine.
-    if portfolio_value < IMPLAUSIBLE_VALUE_FRAC * ath:
-        logger.warning(
-            "Drawdown check skipped — portfolio value $%.2f is implausibly small "
-            "vs ATH $%.0f; treating as a bad broker read, not a real loss.",
-            portfolio_value, ath
-        )
-        return True, ""
-    drawdown = (portfolio_value - ath) / ath
-    if drawdown < -DRAWDOWN_CIRCUIT_BREAKER:
-        msg = (
-            f"Drawdown circuit breaker: {drawdown:.1%} from ATH "
-            f"${ath:,.0f} — trading paused"
-        )
-        _alert(msg)
-        return False, msg
-    return True, ""
+    path = Path(state_path or BREAKER_STATE_FILE)
+    today = today or str(datetime.today().date())
+    state = _load_breaker_state(path)
+    if state is None:
+        seed = _seed_hwm(history_fn)
+        state = {"hwm": seed, "in_breaker": False, "breaker_sessions": 0, "last_session": ""}
+        logger.info("Breaker state seeded: high-water mark $%.2f", seed)
+
+    def _out(event, note=""):
+        hwm = state["hwm"]
+        trip = (1 - DRAWDOWN_CIRCUIT_BREAKER) * hwm
+        dd = (equity - hwm) / hwm if hwm > 0 and equity > 0 else float("nan")
+        return {"in_breaker": state["in_breaker"], "hwm": hwm, "trip_level": trip,
+                "drawdown": dd, "sessions": state["breaker_sessions"],
+                "event": event, "note": note}
+
+    # Bad-read guard: an unreadable (<= 0) or implausibly small (< 5% of HWM) read
+    # is a broker glitch, not a loss (the 2026-06-08 $0 and 2026-07-07 $0.30 reads).
+    # Change nothing: no trip, no release, no session counted, HWM untouched. If we
+    # were already in BREAKER we stay there.
+    hwm0 = state["hwm"]
+    if (not np.isfinite(equity) or equity <= 0
+            or (hwm0 > 0 and equity < IMPLAUSIBLE_VALUE_FRAC * hwm0)):
+        logger.warning("Breaker update skipped — equity read $%.2f is unreadable or "
+                       "implausible vs HWM $%.2f; treating as a bad broker read.",
+                       equity, hwm0)
+        return _out("bad_read")
+
+    new_session = state["last_session"] != today
+    event = "ok"
+    if state["in_breaker"]:
+        trip = (1 - DRAWDOWN_CIRCUIT_BREAKER) * state["hwm"]
+        if equity >= trip:
+            state["in_breaker"], state["breaker_sessions"] = False, 0
+            event = "recovered"
+            _alert(f"Drawdown breaker RELEASED: equity ${equity:,.2f} back above trip "
+                   f"level ${trip:,.2f} (HWM ${state['hwm']:,.2f}) — normal trading resumes")
+        elif new_session and state["breaker_sessions"] >= BREAKER_RESET_SESSIONS:
+            old = state["hwm"]
+            state["hwm"] = equity
+            state["in_breaker"], state["breaker_sessions"] = False, 0
+            event = "reset"
+            _alert(f"Drawdown breaker RESET after {BREAKER_RESET_SESSIONS} sessions in "
+                   f"de-risk mode: HWM re-based ${old:,.2f} -> ${equity:,.2f} — "
+                   f"normal trading resumes")
+        else:
+            if new_session:
+                state["breaker_sessions"] += 1
+            event = "derisk"
+
+    if not state["in_breaker"]:
+        state["hwm"] = max(state["hwm"], equity)
+        trip = (1 - DRAWDOWN_CIRCUIT_BREAKER) * state["hwm"]
+        if equity < trip:
+            state["in_breaker"], state["breaker_sessions"] = True, 1
+            event = "tripped"
+
+    state["last_session"] = today
+    _save_breaker_state(state, path)
+    out = _out(event)
+    if out["in_breaker"]:
+        out["note"] = (f"BREAKER de-risk only: {out['drawdown']:.1%} from HWM "
+                       f"${out['hwm']:,.0f} (trip ${out['trip_level']:,.0f}), session "
+                       f"{out['sessions']}/{BREAKER_RESET_SESSIONS}")
+        if event == "tripped":
+            _alert(f"Drawdown circuit breaker: {out['drawdown']:.1%} from HWM "
+                   f"${out['hwm']:,.0f} — BREAKER mode, de-risk only (sells + "
+                   f"{CASH_ASSET}; no risky buys)")
+        else:
+            _alert(out["note"])
+    elif event in ("recovered", "reset"):
+        out["note"] = f"breaker_{event}"
+    return out
+
+
+def derisk_targets(current_weights: dict, target_weights: dict,
+                   cash_asset: str = CASH_ASSET) -> dict:
+    """Clip the normal targets so the only trades are risk-reducing.
+
+    Each risky position goes to min(current, target): reductions toward target and
+    full exits happen, but nothing is bought or increased. Everything freed (plus
+    any uninvested cash) is assigned to the cash asset. Total risky exposure can
+    therefore only fall.
+    """
+    out: dict[str, float] = {}
+    for sym in set(current_weights) | set(target_weights):
+        if sym == cash_asset:
+            continue
+        w = min(max(float(current_weights.get(sym, 0.0)), 0.0),
+                max(float(target_weights.get(sym, 0.0)), 0.0))
+        if w > 0:
+            out[sym] = w
+    out[cash_asset] = max(0.0, 1.0 - sum(out.values()))
+    return out
 
 
 def check_volatility(returns: pd.DataFrame, weights: dict) -> tuple[bool, str]:
@@ -181,10 +328,14 @@ def run_all_checks(
     returns: pd.DataFrame,
     target_weights: dict,
 ) -> tuple[bool, list[str]]:
-    """Run the whole checklist. Hands back (did everything pass?, list of what failed)."""
+    """Run the whole checklist. Hands back (did everything pass?, list of what failed).
+
+    The drawdown breaker is no longer part of this all-or-nothing gate: it puts the
+    book in de-risk-only mode instead of blocking every order (see update_breaker).
+    portfolio_value is kept in the signature for callers.
+    """
     failures: list[str] = []
     for ok, msg in [
-        check_drawdown(portfolio_value),
         check_volatility(returns, target_weights),
         check_concentration(target_weights),
         check_correlation(returns),

@@ -85,7 +85,7 @@ def _already_ran_today() -> bool:
         return False
 
 
-def main() -> None:
+def main() -> int | None:
     logger.info("═" * 60)
     logger.info("Portfolio Bot — %s", datetime.now().strftime("%Y-%m-%d %H:%M"))
     logger.info("═" * 60)
@@ -220,6 +220,16 @@ def main() -> None:
         sys.exit(2)
     current_weights = get_current_positions()
 
+    # Drawdown breaker: advance the persisted broker-equity high-water mark. When
+    # tripped the book goes DE-RISK ONLY (sells/exits + SHV) rather than freezing.
+    from risk import update_breaker, derisk_targets
+    from broker import get_account_history
+    breaker = update_breaker(
+        portfolio_value, today=str(datetime.today().date()),
+        history_fn=lambda: get_account_history(365)["equity"],
+    )
+    breaker_notes = [breaker["note"]] if breaker["note"] else []
+
     all_passed, failures = run_all_checks(portfolio_value, asset_returns, target_weights)
     if not all_passed:
         for msg in failures:
@@ -234,13 +244,32 @@ def main() -> None:
             "annual_vol": result["annual_volatility"],
             "orders_placed": 0,
             "final_weights": json.dumps(target_weights),   # log what we wanted, even though we didn't trade — the dashboard shows it
-            "notes": "; ".join(failures + ([ml_note] if ml_note else [])),
+            "notes": "; ".join(failures + breaker_notes + ([ml_note] if ml_note else [])),
         })
         logger.warning("Pipeline aborted — risk checks failed.")
         # Fail the run so GitHub Actions emails the owner. risk._alert only emails
         # when EMAIL_USER/EMAIL_PASS are set, and they aren't, so every block so
         # far happened silently. The log-commit step runs `if: always()`.
         sys.exit(2)
+
+    # ── 6b. BREAKER mode: only risk-reducing trades ───────────────────────────
+    buy_only = None
+    if breaker["in_breaker"] and not current_weights:
+        # Positions unreadable (or an all-cash book): min(current, target) would be
+        # "sell everything". Don't act on a blind read — only the idle-cash sweep runs.
+        logger.warning("BREAKER mode but positions unreadable/empty — no rebalance today.")
+        target_weights = {}
+    elif breaker["in_breaker"]:
+        target_weights = derisk_targets(current_weights, target_weights, CASH_ASSET)
+        buy_only = {CASH_ASSET}
+        logger.warning("BREAKER (de-risk only) mode — %s. Sells toward target allowed, "
+                       "proceeds to %s; risky buys blocked.", breaker["note"], CASH_ASSET)
+        for ticker, w in sorted(target_weights.items(), key=lambda x: -x[1]):
+            if w > 0.001:
+                logger.warning("  de-risk target %-6s  %.1f%%", ticker, w * 100)
+    # Breaker days still fail the Action (exit 2) after trading, as before, so the
+    # owner is notified; the log-commit step runs `if: always()`.
+    exit_code = 2 if breaker["in_breaker"] else None
 
     # ── 7. Is it even worth trading? Skip if we're already close enough ───────
     if not should_rebalance(current_weights, target_weights):
@@ -257,15 +286,15 @@ def main() -> None:
             "annual_vol": result["annual_volatility"],
             "orders_placed": 1 if swept else 0,
             "final_weights": json.dumps(current_weights),
-            "notes": "; ".join(["no_rebalance"] + ([ml_note] if ml_note else [])
+            "notes": "; ".join(["no_rebalance"] + breaker_notes + ([ml_note] if ml_note else [])
                                + (["cash_swept"] if swept else [])),
         })
-        return
+        return exit_code
 
     # ── 8. Actually place the trades ──────────────────────────────────────────
     logger.info("Rebalancing…")
     from broker import rebalance, sweep_idle_cash
-    orders = rebalance(target_weights)
+    orders = rebalance(target_weights, buy_only=buy_only)
     logger.info("%d orders placed.", len(orders))
     if orders:
         import time as _time
@@ -293,13 +322,14 @@ def main() -> None:
         "annual_vol": result["annual_volatility"],
         "orders_placed": len(orders),
         "final_weights": json.dumps(held_weights),
-        "notes": "; ".join(([ml_note] if ml_note else [])
+        "notes": "; ".join(breaker_notes + ([ml_note] if ml_note else [])
                            + (["cash_swept"] if swept else [])
                            + ([f"unfilled={shortfall:.1%}"] if shortfall > 0.02 else [])),
     })
 
     logger.info("Pipeline complete.")
+    return exit_code
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())
