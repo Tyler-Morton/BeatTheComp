@@ -1,274 +1,57 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Tyler Morton · Algorithmic Trading Bot</title>
-  <meta name="description" content="A live, autonomous trading system with a volatility-targeting risk overlay — every strategy graded by the same statistical referee: bootstrap confidence intervals, Deflated Sharpe, and Monte Carlo outcome distributions." />
-  <meta property="og:title" content="Tyler Morton · Algorithmic Trading Bot" />
-  <meta property="og:description" content="Live paper-traded bots vs the S&P 500, with an honest statistical verdict engine grading every strategy." />
-  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%230f172a'/%3E%3Cpath d='M7 21 L13 14 L18 17 L25 8' stroke='%232563eb' stroke-width='3' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E" />
-  <link rel="preconnect" href="https://fonts.googleapis.com" />
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=Geist:wght@300;400;500;600;700;800&family=Geist+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="/static/style.css" />
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Trading Desk</title>
+  <meta name="color-scheme" content="light dark">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/static/style.css">
+  <script>
+    // Apply a saved or ?theme= override before first paint.
+    (function () {
+      var t = new URLSearchParams(location.search).get("theme");
+      try { t = t || localStorage.getItem("desk-theme"); } catch (e) {}
+      if (t === "light" || t === "dark") document.documentElement.dataset.theme = t;
+    })();
+  </script>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%23111110'/%3E%3Cpath d='M7 21l6-6 4 4 8-9' stroke='%23fff' stroke-width='2.6' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E">
 </head>
 <body>
-
-  <!-- NAV (the one place GitHub + LinkedIn live) -->
-  <nav class="nav">
-    <div class="nav-logo">IWillBeat<span>S&amp;P</span></div>
-    <div class="nav-links">
-      <a class="nav-link" href="#strategy">Strategy</a>
-      <a class="nav-link" href="#performance">Performance</a>
-      <a class="nav-link" href="#evidence">Evidence</a>
-      <a class="nav-link" href="https://github.com/Tyler-Morton/BeatTheComp" target="_blank" rel="noopener">GitHub</a>
-      <a class="nav-btn" href="https://www.linkedin.com/in/tyler-t-morton" target="_blank" rel="noopener">LinkedIn</a>
-    </div>
-  </nav>
-
-  <!-- HERO -->
-  <header class="hero">
-    <canvas class="hero-canvas" id="gradient-canvas" aria-hidden="true"></canvas>
-    <div class="hero-inner">
-      <div class="hero-content">
-        <div class="hero-eyebrow"><span class="live-dot"></span><span id="hero-status">Live on Alpaca · since May 2026</span></div>
-        <h1 class="hero-title">Algorithmic trading,<br />built to <span>lose less</span></h1>
-        <p class="hero-sub">A leveraged-ETF book wrapped in a volatility-targeting overlay and regime-aware rebalancing. It runs itself every morning, its first job is capital preservation, and every claim on this page is graded by the same statistical referee.</p>
-        <div class="hero-actions">
-          <a class="btn btn-primary" href="#performance">View performance</a>
-          <a class="btn btn-ghost" href="#evidence">See the evidence</a>
-        </div>
-      </div>
-      <div class="hero-badge" id="hero-badge">
-        <div class="badge-label">Portfolio value</div>
-        <div class="badge-value" id="badge-value">···</div>
-        <div class="badge-delta" id="badge-delta">···</div>
+  <header class="topbar">
+    <div class="topbar-inner">
+      <a class="brand" href="#/desk" aria-label="Desk home">
+        <svg viewBox="0 0 32 32" width="22" height="22" aria-hidden="true"><rect width="32" height="32" rx="7" class="brand-bg"/><path d="M7 21l6-6 4 4 8-9" class="brand-fg"/></svg>
+        <span>IWillBeatS&amp;P</span>
+      </a>
+      <nav class="nav" aria-label="Primary">
+        <a href="#/desk" data-nav="desk">Desk</a>
+        <a href="#/book/champion" data-nav="book">Books</a>
+        <a href="#/research" data-nav="research">Research</a>
+        <a href="#/health" data-nav="health">Health</a>
+      </nav>
+      <div class="topbar-right">
+        <span class="paper-chip" title="All accounts are Alpaca paper accounts. This page cannot place orders.">Paper</span>
+        <span class="asof" id="asof"></span>
+        <button class="icon-btn" id="theme" type="button" aria-label="Toggle light or dark theme" title="Theme">
+          <svg viewBox="0 0 20 20" width="16" height="16" aria-hidden="true"><circle cx="10" cy="10" r="6.2" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M10 3.8a6.2 6.2 0 0 1 0 12.4z" fill="currentColor"/></svg>
+        </button>
+        <button class="icon-btn" id="refresh" type="button" aria-label="Refresh data" title="Refresh">
+          <svg viewBox="0 0 20 20" width="16" height="16" aria-hidden="true"><path d="M16 10a6 6 0 1 1-1.8-4.3M16 3.5V7h-3.5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </button>
       </div>
     </div>
   </header>
 
-  <!-- STATS STRIP -->
-  <section class="stats-strip reveal" id="stats-strip">
-    <div class="stat">
-      <div class="stat-label">Portfolio value</div>
-      <div class="stat-value" id="stat-equity">···</div>
-      <div class="stat-sub" id="stat-equity-sub">live · Alpaca</div>
-    </div>
-    <div class="stat">
-      <div class="stat-label">Today</div>
-      <div class="stat-value" id="stat-today">···</div>
-      <div class="stat-sub">since yesterday's close</div>
-    </div>
-    <div class="stat">
-      <div class="stat-label">Sharpe ratio</div>
-      <div class="stat-value blue" id="stat-sharpe">···</div>
-      <div class="stat-sub" id="stat-sharpe-sub">7.5-year simulation</div>
-    </div>
-    <div class="stat">
-      <div class="stat-label">Max drawdown</div>
-      <div class="stat-value red" id="stat-maxdd">···</div>
-      <div class="stat-sub">simulated, with vol overlay</div>
-    </div>
-    <div class="stat">
-      <div class="stat-label">Regime</div>
-      <div class="stat-value green" id="stat-regime">···</div>
-      <div class="stat-sub" id="stat-regime-sub">as of today</div>
-    </div>
-  </section>
+  <main id="view" class="view" aria-live="polite"></main>
 
-  <!-- STRATEGY -->
-  <section class="section" id="strategy">
-    <div class="section-head reveal">
-      <div class="section-label">Strategy</div>
-      <h2 class="section-title">How the bot works</h2>
-      <p class="section-sub">Four layers stacked on top of each other. Each one does a single job cleanly, and nothing ships without passing an out-of-sample backtest.</p>
-    </div>
-    <div class="bento reveal">
-      <div class="bento-card tall">
-        <div class="card-num">LAYER 01</div>
-        <div class="card-title">Regime-picked asset universe</div>
-        <p class="card-desc">A growth engine of leveraged tech ETFs (TQQQ, UPRO, SOXL, TECL) when the market is healthy, rotating toward gold, treasuries, and cash when it is not. A regime detector decides which team is on the field.</p>
-        <span class="card-pill">TQQQ · UPRO · SOXL · GLD · TLT</span>
-      </div>
-      <div class="bento-card">
-        <div class="card-num">LAYER 02</div>
-        <div class="card-title">HRP weighting</div>
-        <p class="card-desc">Hierarchical Risk Parity sizes positions by correlation structure instead of trusting noisy return forecasts.</p>
-      </div>
-      <div class="bento-card">
-        <div class="card-num">LAYER 03</div>
-        <div class="card-title">Vol-targeting overlay</div>
-        <p class="card-desc">Scales exposure toward a 20% annual-vol target and parks the rest in cash (SHV).</p>
-        <span class="card-pill green">Live</span>
-      </div>
-      <div class="bento-card">
-        <div class="card-num">LAYER 04</div>
-        <div class="card-title">ML crash model</div>
-        <p class="card-desc">A gradient-boosted classifier estimates drawdown probability daily. Running observe-only until its live track record earns it the right to size trades.</p>
-        <span class="card-pill">Shadow mode</span>
-      </div>
-      <div class="bento-card wide">
-        <div class="card-num">INFRASTRUCTURE</div>
-        <div class="card-title">Fully autonomous</div>
-        <p class="card-desc">Runs every morning at 6:30 AM via GitHub Actions. It pulls data, re-optimizes, applies the risk overlays, and rebalances on Alpaca with zero manual intervention. Bad broker data can't trade: a $0-equity guard refuses to act on failed API reads.</p>
-        <span class="card-pill">GitHub Actions · Alpaca · Python</span>
-      </div>
-    </div>
-  </section>
-
-  <!-- PERFORMANCE -->
-  <section class="section" id="performance">
-    <div class="section-head reveal">
-      <div class="section-label">Performance</div>
-      <h2 class="section-title">Live, versus the S&amp;P 500</h2>
-      <p class="section-sub">Every line is real, paper-traded on Alpaca. Both series are indexed to a $1,000 start at the beginning of the selected window, so the comparison is apples to apples.</p>
-    </div>
-
-    <div class="chart-wrap reveal">
-      <div class="chart-toolbar">
-        <div class="chart-legend">
-          <span class="lg"><span class="lg-swatch port"></span>Portfolio <b id="lg-port">···</b></span>
-          <span class="lg"><span class="lg-swatch spy"></span>S&amp;P 500 <b id="lg-spy">···</b></span>
-          <span class="lg" id="lg-chal-wrap" style="display:none"><span class="lg-swatch chal"></span>Challenger <b id="lg-chal">···</b></span>
-          <span class="lg-diff" id="lg-diff"></span>
-        </div>
-        <div class="range-btns" id="range-btns">
-          <button data-range="1W">1W</button>
-          <button data-range="1M">1M</button>
-          <button data-range="YTD">YTD</button>
-          <button data-range="ALL" class="active">ALL</button>
-        </div>
-      </div>
-      <div class="chart-area" id="chart-area">
-        <svg class="equity-chart" id="equity-chart" viewBox="0 0 880 380" preserveAspectRatio="none" role="img" aria-label="Portfolio value versus the S&P 500 over time"></svg>
-        <div class="chart-crosshair" id="chart-crosshair"></div>
-        <div class="chart-tooltip" id="chart-tooltip"></div>
-      </div>
-    </div>
-
-    <!-- Since-inception live metrics -->
-    <div class="metrics-grid reveal" id="metrics-grid">
-      <div class="metric"><div class="metric-label">Total return</div><div class="metric-value" id="m-total">···</div><div class="metric-sub">since inception</div></div>
-      <div class="metric"><div class="metric-label">vs S&amp;P 500</div><div class="metric-value" id="m-alpha">···</div><div class="metric-sub">excess return</div></div>
-      <div class="metric"><div class="metric-label">Best day</div><div class="metric-value" id="m-best">···</div><div class="metric-sub">single session</div></div>
-      <div class="metric"><div class="metric-label">Worst day</div><div class="metric-value" id="m-worst">···</div><div class="metric-sub">single session</div></div>
-      <div class="metric"><div class="metric-label">Win rate</div><div class="metric-value" id="m-win">···</div><div class="metric-sub">up sessions</div></div>
-      <div class="metric"><div class="metric-label">Days live</div><div class="metric-value" id="m-days">···</div><div class="metric-sub">on Alpaca</div></div>
-      <div class="metric"><div class="metric-label">Rebalances</div><div class="metric-value" id="m-rebal">···</div><div class="metric-sub">orders executed</div></div>
-      <div class="metric"><div class="metric-label">Cash sleeve</div><div class="metric-value" id="m-cash">···</div><div class="metric-sub">in SHV now</div></div>
-    </div>
-  </section>
-
-  <!-- HOLDINGS -->
-  <section class="section" id="holdings">
-    <div class="section-head reveal">
-      <div class="section-label">Holdings</div>
-      <h2 class="section-title">What it holds right now</h2>
-      <p class="section-sub">Live positions from Alpaca, each with its market value and share of the book. The cash sleeve (SHV) is where the vol-targeting overlay parks risk it does not want exposed.</p>
-    </div>
-    <div class="holdings reveal">
-      <div class="alloc-bar" id="alloc-bar"></div>
-      <div class="holdings-list" id="holdings-list"></div>
-    </div>
-  </section>
-
-  <!-- CHALLENGER -->
-  <section class="section" id="challenger" style="display:none">
-    <div class="section-head reveal">
-      <div class="section-label">The Challenger</div>
-      <h2 class="section-title">A second bot, racing the first</h2>
-      <p class="section-sub">A live A/B test on a separate $1,000 paper account. Same risk discipline, opposite bet: instead of leveraged tech under a 20% vol cap, the challenger runs a diversified three-sleeve book (defensive core, low-vol sectors, bonds and gold) under a 16% vol target. The verdict engine below grades both — live forward results decide which book earns the capital.</p>
-    </div>
-    <div class="numbers-row reveal">
-      <div class="num-item">
-        <div class="num-label">Account value</div>
-        <div class="num-value chal-accent" id="chal-equity">···</div>
-        <div class="num-sub" id="chal-since">live · Alpaca</div>
-      </div>
-      <div class="num-item">
-        <div class="num-label">Since start</div>
-        <div class="num-value" id="chal-return">···</div>
-        <div class="num-sub" id="chal-days">forward, real fills</div>
-      </div>
-      <div class="num-item">
-        <div class="num-label">Vol target</div>
-        <div class="num-value" id="chal-vol">···</div>
-        <div class="num-sub">vs 20% on the champion</div>
-      </div>
-      <div class="num-item">
-        <div class="num-label">Backtest Sharpe</div>
-        <div class="num-value" id="chal-sharpe">···</div>
-        <div class="num-sub">vs <span id="chal-spy-sharpe">···</span> for SPY, 2007 to 2026</div>
-      </div>
-    </div>
-  </section>
-
-  <!-- EVIDENCE: the verdict engine -->
-  <section class="section" id="evidence">
-    <div class="section-head reveal">
-      <div class="section-label">Evidence</div>
-      <h2 class="section-title">Every strategy graded by the same referee</h2>
-      <p class="section-sub">A standalone verdict engine reruns each book through identical statistics: Sharpe confidence intervals from block bootstraps, a Deflated Sharpe Ratio penalized by every configuration ever tried (counted in a trial registry so K can't be fudged), and 10,000-path Monte Carlo outcome distributions. The labels are frozen at <b>confirmed</b>, <b>promising</b>, or <b>insufficient</b>, and no strategy grades its own homework. Killed ideas stay in the research journal next to the wins.</p>
-    </div>
-
-    <div class="verdict-grid reveal" id="verdict-grid">
-      <div class="verdict-skeleton"></div>
-      <div class="verdict-skeleton"></div>
-      <div class="verdict-skeleton"></div>
-    </div>
-
-    <div class="fan-wrap reveal">
-      <div class="chart-toolbar">
-        <div>
-          <div class="fan-title">One year forward, 10,000 simulated paths</div>
-          <div class="fan-sub" id="fan-sub">block-bootstrap Monte Carlo of realized daily returns · bands are the middle 50% and 90% of outcomes</div>
-        </div>
-        <div class="range-btns" id="fan-btns">
-          <button data-book="champion" class="active">Champion</button>
-          <button data-book="challenger">Challenger</button>
-        </div>
-      </div>
-      <svg id="fan-chart" viewBox="0 0 880 330" preserveAspectRatio="none" class="fan-chart" role="img" aria-label="Monte Carlo fan chart of one-year forward outcomes"></svg>
-      <div class="fan-probs" id="fan-probs"></div>
-      <p class="fan-note">Monte Carlo resamples what actually happened, in 21-day blocks — it preserves fat tails and vol clustering, but it cannot imagine a crash worse than its sample. Read the tails accordingly. Paper trading; not investment advice.</p>
-    </div>
-  </section>
-
-  <!-- RISK ARCHITECTURE -->
-  <section class="section" id="risk">
-    <div class="section-head reveal">
-      <div class="section-label">Risk Architecture</div>
-      <h2 class="section-title">Built to lose less</h2>
-      <p class="section-sub">The strategy is designed around capital preservation first. Three independent guardrails sit between the optimizer and the broker.</p>
-    </div>
-    <div class="risk-grid reveal">
-      <div class="risk-item">
-        <div class="risk-name">Vol-targeting overlay</div>
-        <p class="risk-desc">Continuously scales the book toward a constant 20% annual volatility, de-risking into turbulence and parking the excess in cash.</p>
-      </div>
-      <div class="risk-item">
-        <div class="risk-name">Drawdown circuit breaker</div>
-        <p class="risk-desc">Halts trading if the account breaches a hard drawdown limit, with a guard against false triggers from broker timeouts.</p>
-      </div>
-      <div class="risk-item">
-        <div class="risk-name">Concentration limit</div>
-        <p class="risk-desc">Caps any single position's weight so one name cannot dominate the book, while exempting the cash sleeve.</p>
-      </div>
-    </div>
-  </section>
-
-  <!-- FOOTER (contact only; social links live in the nav) -->
-  <footer class="footer">
-    <div class="footer-left">
-      <div class="footer-name">Tyler Morton</div>
-      <div class="footer-sub">University of Utah · Computer Science · Salt Lake City</div>
-    </div>
-    <div class="footer-links">
-      <a class="footer-link" href="mailto:tylermorton35@gmail.com">tylermorton35@gmail.com</a>
-    </div>
+  <footer class="foot">
+    <span>Read-only. Reads the logs the bots commit; never places orders or touches broker keys.</span>
   </footer>
 
+  <div id="tip" class="tip" role="tooltip" hidden></div>
   <script src="/static/app.js"></script>
 </body>
 </html>
