@@ -53,7 +53,11 @@ def _download_history(tickers: list[str]) -> pd.DataFrame:
             logger.warning("Download failed for %s: %s", ticker, exc)
     if not frames:
         raise RuntimeError("No data downloaded for backtest.")
-    prices = pd.concat(frames, axis=1).ffill().bfill()
+    # ffill only. The old .bfill() painted each ETF's first price back over the
+    # years before it existed (BITO 2021, AVUV 2019): flat prices, zero returns,
+    # zero variance — which an inverse-variance optimizer reads as the safest
+    # asset in the universe and the backtest then "holds" as free cash.
+    prices = pd.concat(frames, axis=1).ffill()
     return prices
 
 
@@ -104,10 +108,20 @@ def _simulate(prices: pd.DataFrame, strategy: str) -> pd.Series:
     for i in range(1, len(prices)):
         date = prices.index[i]
 
+        # Drawdown circuit breaker, as risk.check_drawdown does live: judged on
+        # the equity we KNOW (yesterday's close), and all it does is block the
+        # rebalance — positions keep riding. It used to discard the losing day's
+        # return instead, which no live bot can do: equity could never close
+        # more than 30% under its high, so max drawdown was capped by fiat.
+        breaker_on = (equity.iloc[i - 1] / portfolio_ath - 1) < -DRAWDOWN_CIRCUIT_BREAKER
+
         # Rebalance on month-end or first bar
-        if date in rebal_dates or i == 1:
+        if (date in rebal_dates and not breaker_on) or i == 1:
             hist_start = max(0, i - 252)
-            hist = returns.iloc[hist_start:i][asset_cols].dropna(axis=1, how="all")
+            # An asset joins once it has a full lookback window (live sees no gaps:
+            # data.get_returns drops incomplete rows).
+            # (Row 0 of pct_change is all-NaN, hence max(1, ...).)
+            hist = returns.iloc[max(1, hist_start):i][asset_cols].dropna(axis=1, how="any")
             if not hist.empty and len(hist) >= 20:
                 price_slice = prices.iloc[hist_start:i]
                 regime = _detect_regime_from_prices(price_slice)
@@ -124,14 +138,8 @@ def _simulate(prices: pd.DataFrame, strategy: str) -> pd.Series:
             if t in returns.columns and not np.isnan(returns.loc[date, t])
         )
 
-        prev_val = equity.iloc[i - 1]
-        new_val = prev_val * (1.0 + day_ret)
-
-        # Drawdown circuit breaker — use config value (was hardcoded)
+        new_val = equity.iloc[i - 1] * (1.0 + day_ret)
         portfolio_ath = max(portfolio_ath, new_val)
-        if (new_val / portfolio_ath - 1) < -DRAWDOWN_CIRCUIT_BREAKER:
-            new_val = prev_val  # freeze portfolio (no trading)
-
         equity.iloc[i] = new_val
 
     return equity.dropna()

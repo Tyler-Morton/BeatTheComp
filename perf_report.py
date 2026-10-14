@@ -70,7 +70,11 @@ def simulate_deployed(prices: pd.DataFrame) -> pd.Series:
 
     for i in range(1, len(prices)):
         date = prices.index[i]
-        if date in rebal_dates or i == 1:
+        # Circuit breaker as live (risk.check_drawdown): judged on yesterday's
+        # known equity, it only blocks rebalancing. It used to discard the losing
+        # day's return, which capped drawdown at 30% by fiat.
+        breaker_on = (equity.iloc[i - 1] / ath - 1.0) < -DRAWDOWN_CIRCUIT_BREAKER
+        if (date in rebal_dates and not breaker_on) or i == 1:
             hist_start = max(0, i - 252)
             # Use only assets with full, real history in this window. Tiingo leaves
             # pre-launch dates as NaN (e.g. BITO starts 2021); NaN or flat columns
@@ -93,11 +97,8 @@ def simulate_deployed(prices: pd.DataFrame) -> pd.Series:
                         if t in returns.columns and not np.isnan(returns.loc[date, t]))
         day_ret = scaler * asset_ret + (1.0 - scaler) * RF_DAILY
 
-        prev = equity.iloc[i - 1]
-        new = prev * (1.0 + day_ret)
+        new = equity.iloc[i - 1] * (1.0 + day_ret)
         ath = max(ath, new)
-        if (new / ath - 1.0) < -DRAWDOWN_CIRCUIT_BREAKER:
-            new = prev  # circuit breaker: freeze
         equity.iloc[i] = new
     return equity.dropna()
 
