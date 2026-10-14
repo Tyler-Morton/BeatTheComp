@@ -488,6 +488,11 @@ def optimize(
     else:
         raise ValueError(f"Unknown strategy: {strategy!r}")
 
+    # HRP returns weights in its dendrogram (leaf) order, not the column order.
+    # mean_ret/cov252 below are in COLUMN order, so without this the stats paired
+    # each asset's weight with another asset's mean and variance: the 2026-10-13
+    # run logged Sharpe 0.20 / vol 13% for a book that was really -0.12 / 53%.
+    weights = weights.reindex(tickers).fillna(0.0)
     mean_ret = returns.mean().values
     cov252 = returns.cov().values * 252
     stats = _portfolio_stats(weights.values, mean_ret, cov252)
