@@ -32,6 +32,9 @@ BASE_LEV = 1.5         # core engine max effective leverage
 RAMP_BAND = 0.10       # core ramps 0->full over QQQ being -10%..+10% vs its MA
 
 TARGET_VOL = 0.16      # the whole-book vol budget (annualized)
+# Pinned, not inherited: vol_target_scaler otherwise reads the CHAMPION's
+# config.OVERLAY_VOL_MODEL, so a champion estimator change would leak into the A/B.
+VOL_MODEL = "trailing"
 CASH = "SHV"
 
 # Backtest verdict (2026-06-09, challenger/backtest.py, 2007-2026 Tiingo data):

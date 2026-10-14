@@ -41,7 +41,7 @@ import pandas as pd
 
 import broker                                   # imported AFTER the key swap
 from risk_overlay import vol_target_scaler, portfolio_vol
-from sleeves import combined_weights, ALL_TICKERS, TARGET_VOL, CASH
+from sleeves import combined_weights, ALL_TICKERS, TARGET_VOL, CASH, VOL_MODEL
 
 DAILY_LOG = HERE / "daily_log.csv"
 BASE_STATE = HERE / "base_state.json"   # sleeve weights frozen between month-ends (C2)
@@ -92,7 +92,7 @@ def already_ran_today() -> bool:
         return False
 
 
-def monthly_base(px: pd.DataFrame) -> dict:
+def monthly_base(px: pd.DataFrame, today=None) -> dict:
     """Sleeve weights, recomputed ONCE per month, as challenger/backtest.py does.
 
     The backtest recomputes combined_weights() only on month-end (BME) dates and
@@ -100,11 +100,14 @@ def monthly_base(px: pd.DataFrame) -> dict:
     the core QQQ/QLD ramp and the ballast inverse-vol split trade on daily noise:
     live turnover 12.5x/yr vs 2.9x/yr tested (C2, 2026-10-13). Re-running the
     backtest with daily recompute: CAGR 12.1% -> 11.4% at 3bp cost.
-    Freeze rule: reuse the stored base while the last price date is in the same
-    calendar month as when it was computed; the first run of a new month uses data
-    through the prior month's last close, i.e. the BME close, lagged one day.
+    Freeze rule: reuse the stored base while the RUN date is in the same calendar
+    month as when it was computed; the first run of a new month therefore uses
+    data through the prior month's last close, i.e. the BME close.
+    (Keying on the last PRICE date, as this first did, kept last month's base on
+    the first trading day of every month — that morning's newest close is still
+    the prior month's — so each recompute landed one trading day late.)
     """
-    month = px.index[-1].strftime("%Y-%m")
+    month = (today or datetime.now().date()).strftime("%Y-%m")
     if BASE_STATE.exists():
         try:
             st = json.loads(BASE_STATE.read_text())
@@ -113,10 +116,30 @@ def monthly_base(px: pd.DataFrame) -> dict:
         except Exception:
             pass
     base = combined_weights(px)
-    BASE_STATE.write_text(json.dumps({"month": month, "computed_on": str(px.index[-1].date()),
-                                      "base": base}, indent=1))
+    tmp = BASE_STATE.with_suffix(".tmp")       # atomic: a killed run can't leave half a file
+    tmp.write_text(json.dumps({"month": month, "computed_on": str(px.index[-1].date()),
+                               "base": base}, indent=1))
+    os.replace(tmp, BASE_STATE)
     print(f"Sleeve base recomputed for {month}")
     return base
+
+
+def target_weights(base: dict, s: float) -> dict:
+    """Vol-scale the risky part of `base` by s; the remainder, and any crumb below
+    MIN_WEIGHT, goes to CASH so the targets always sum to 1.0.
+
+    Crumbs used to be DROPPED instead of folded into cash. The challenger never
+    sweeps idle cash, so that slice sat uninvested while the backtest held it.
+    """
+    risky = {t: v for t, v in base.items() if t != CASH}
+    w = {t: v * s for t, v in risky.items()}
+    w[CASH] = base.get(CASH, 0.0) + (1.0 - s) * sum(risky.values())
+    crumbs = sum(v for t, v in w.items() if t != CASH and v < MIN_WEIGHT)
+    out = {t: round(v, 4) for t, v in w.items() if t != CASH and v >= MIN_WEIGHT}
+    cash = w[CASH] + crumbs
+    if cash > 1e-9:
+        out[CASH] = round(cash, 4)
+    return out
 
 
 def log_row(row: dict):
@@ -147,10 +170,8 @@ def main():
     dr = px.pct_change(fill_method=None)
 
     risky = {t: v for t, v in base.items() if t != CASH}
-    s = vol_target_scaler(dr.tail(80), risky, TARGET_VOL)
-    weights = {t: v * s for t, v in risky.items()}
-    weights[CASH] = base.get(CASH, 0.0) + (1.0 - s) * sum(risky.values())
-    weights = {t: round(v, 4) for t, v in weights.items() if v >= MIN_WEIGHT}
+    s = vol_target_scaler(dr.tail(80), risky, TARGET_VOL, model=VOL_MODEL)
+    weights = target_weights(base, s)
 
     est_vol = portfolio_vol(dr.tail(80), risky)
     print(f"Vol scaler {s:.2f} (book est. {est_vol:.0%} -> target {TARGET_VOL:.0%})")

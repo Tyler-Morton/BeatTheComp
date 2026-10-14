@@ -29,7 +29,7 @@ load_dotenv(ROOT / ".env")
 
 from risk_overlay import vol_target_scaler          # the LIVE overlay code
 import sleeves
-from sleeves import combined_weights, SLEEVE_BUDGETS, CASH
+from sleeves import combined_weights, SLEEVE_BUDGETS, CASH, VOL_MODEL
 
 TD = 252
 RF = 0.045                  # Sharpe hurdle (matches the lab's convention)
@@ -71,6 +71,18 @@ def load_data() -> pd.DataFrame:
 
 # ── Engine: monthly sleeve rebalance + DAILY vol-target scaling ───────────────
 
+def _held_return(held: dict, day_ret: pd.Series) -> float:
+    """One day's return on the weights held coming into that day."""
+    ret = 0.0
+    for t, w in held.items():
+        if t == CASH:
+            ret += w * (CASH_YIELD / TD)
+        else:
+            r = day_ret.get(t, np.nan)
+            ret += w * (r if np.isfinite(r) else 0.0)
+    return ret
+
+
 def run_book(px: pd.DataFrame, budgets: dict, target_vol: float,
              start: str | None = None) -> pd.Series:
     """Daily returns of a sleeve book under the live vol-targeting overlay."""
@@ -83,12 +95,19 @@ def run_book(px: pd.DataFrame, budgets: dict, target_vol: float,
     held: dict = {}
     for i in range(260, len(idx)):
         d = idx[i]
+        # Day i's return accrues to what we held coming INTO day i. The decision
+        # below uses day i's close, so it can only earn from day i+1 on. (This
+        # used to rebalance first and then earn day i with the new weights: a
+        # same-bar look-ahead that let the vol scaler "see" the day it was paid on.)
+        out.iloc[i] += _held_return(held, dr.iloc[i])
+
         if d in rebal or not base:
             base = combined_weights(px.iloc[:i + 1], budgets)
 
         # split the cash slice out; vol-scale only the risky part (live behavior)
         risky = {t: v for t, v in base.items() if t != CASH}
-        s = vol_target_scaler(dr.iloc[max(0, i - 79):i + 1], risky, target_vol)
+        s = vol_target_scaler(dr.iloc[max(0, i - 79):i + 1], risky, target_vol,
+                              model=VOL_MODEL)
         desired = {t: v * s for t, v in risky.items()}
         desired[CASH] = base.get(CASH, 0.0) + (1.0 - s) * sum(risky.values())
 
@@ -98,15 +117,6 @@ def run_book(px: pd.DataFrame, budgets: dict, target_vol: float,
                        for t in set(desired) | set(held))
             out.iloc[i] -= TCOST * turn
             held = dict(desired)
-
-        ret = 0.0
-        for t, w in held.items():
-            if t == CASH:
-                ret += w * (CASH_YIELD / TD)
-            else:
-                r = dr.iloc[i].get(t, np.nan)
-                ret += w * (r if np.isfinite(r) else 0.0)
-        out.iloc[i] += ret
 
     if start:
         out = out[out.index >= pd.Timestamp(start)]
@@ -125,6 +135,7 @@ def run_champion_proxy(px: pd.DataFrame, target_vol: float = 0.20) -> pd.Series:
         d = idx[i]
         if d < pd.Timestamp("2011-01-01"):
             continue
+        out.iloc[i] += _held_return(held, dr.iloc[i])      # yesterday's book earns today
         if d in rebal or not base:
             hist = px.iloc[:i + 1]
             spy = hist["SPY"]
@@ -135,7 +146,8 @@ def run_champion_proxy(px: pd.DataFrame, target_vol: float = 0.20) -> pd.Series:
                 base = (inv / inv.sum()).to_dict() if inv.sum() > 0 else {}
             else:
                 base = {"TLT": 0.4, "GLD": 0.3, "IEF": 0.3}
-        s = vol_target_scaler(dr.iloc[max(0, i - 79):i + 1], base, target_vol)
+        s = vol_target_scaler(dr.iloc[max(0, i - 79):i + 1], base, target_vol,
+                              model=VOL_MODEL)
         desired = {t: v * s for t, v in base.items()}
         desired[CASH] = (1.0 - s) * sum(base.values())
         if not held or max(abs(desired.get(t, 0) - held.get(t, 0))
@@ -144,14 +156,6 @@ def run_champion_proxy(px: pd.DataFrame, target_vol: float = 0.20) -> pd.Series:
                        for t in set(desired) | set(held))
             out.iloc[i] -= TCOST * turn
             held = dict(desired)
-        ret = 0.0
-        for t, w in held.items():
-            if t == CASH:
-                ret += w * (CASH_YIELD / TD)
-            else:
-                r = dr.iloc[i].get(t, np.nan)
-                ret += w * (r if np.isfinite(r) else 0.0)
-        out.iloc[i] += ret
     return out[out.index >= pd.Timestamp("2011-07-01")]
 
 
