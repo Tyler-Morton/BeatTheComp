@@ -66,8 +66,14 @@ jobs:
           git add -A -- ':(glob)*.csv' ':(glob)*.parquet'
           git diff --cached --quiet && echo "Nothing to commit" && exit 0
           git commit -m "Daily log $(date -u '+%Y-%m-%d %H:%M UTC')"
+          # The loop's exit status is sleep's, so three failed pushes used to end
+          # this step green and the day's rows were lost without any signal. A
+          # failed rebase also stayed in progress and doomed the retries.
+          pushed=0
           for i in 1 2 3; do
-            git pull --rebase origin main && git push && break
+            if git pull --rebase origin main && git push; then pushed=1; break; fi
+            git rebase --abort 2>/dev/null || true
             echo "Push attempt $i failed, retrying in 5s..."
             sleep 5
           done
+          [ "$pushed" = 1 ] || { echo "::error::Could not push logs after 3 attempts"; exit 1; }
