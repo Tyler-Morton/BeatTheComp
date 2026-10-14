@@ -1,5 +1,12 @@
 # volbot v2 — LADDERED 3-index vol-premium paper sleeve (SPY/QQQ/IWM)
 
+> **RETIRED 2026-10-13.** The scheduled workflow is off (`workflow_dispatch` only);
+> code, state and logs stay in place for the record. Reason: EXP-010 on real OPRA
+> quotes (2020-07 to 2026-07) gave Sharpe −1.54 (−8.0%/yr, maxDD −40.6%) against a
+> pre-registered bar of 0.70, and the live sleeve netted −$68 over 6 condors.
+> Entries were halted 2026-07-28; the account has been flat cash since, and the
+> expiry-day exit path also crashed on Alpaca HTTP 500s (Aug 13/14/20/21).
+
 A 4th, **isolated** paper sleeve that harvests the variance risk premium by selling defined-risk
 iron condors on SPY, QQQ and IWM — each gated by its own vol index (VIX/VXN/RVX), only when vol
 is expensive (rich-vol tercile) and the term structure is calm. Entries ladder weekly per

@@ -16,6 +16,7 @@ research/volbot_ladder_backtest.py + research/volbot_spec.md.
 import io
 import json
 import math
+import os
 import time
 from datetime import date, timedelta
 
@@ -273,7 +274,11 @@ def load_state() -> dict:
 
 
 def save_state(st):
-    C.STATE_FILE.write_text(json.dumps(st, indent=2))
+    # Atomic replace: a run killed mid-write (Actions timeout/cancel) must not
+    # leave a truncated rung ledger, which load_state() would then crash on.
+    tmp = C.STATE_FILE.with_suffix(".tmp")
+    tmp.write_text(json.dumps(st, indent=2))
+    os.replace(tmp, C.STATE_FILE)
 
 
 def log(row):
@@ -408,7 +413,8 @@ def main():
                              best=val, worst=val * (1 + C.LIMIT_STEP_SLACK),
                              allow_market=True)
             cost = net if net is not None else val
-            log_trade(rung, cost, "expiry-close")
+            # No confirmed fill: the ledger gets the MID, and must say so.
+            log_trade(rung, cost, "expiry-close" + ("" if net is not None else " UNCONFIRMED-FILL(mid)"))
             pnl = (rung["credit"] - cost) * 100 * rung["qty"]
             notes.append(f"{rung['u']} expiry-close (dte {dte}) pnl {pnl:+.0f}")
         elif val >= C.LOSS_STOP_MULT * rung["credit"] and val > 0:
@@ -416,7 +422,7 @@ def main():
                              best=val, worst=val * (1 + C.LIMIT_STEP_SLACK),
                              allow_market=True)
             cost = net if net is not None else val
-            log_trade(rung, cost, "loss-stop")
+            log_trade(rung, cost, "loss-stop" + ("" if net is not None else " UNCONFIRMED-FILL(mid)"))
             pnl = (rung["credit"] - cost) * 100 * rung["qty"]
             notes.append(f"{rung['u']} LOSS-STOP (value {val:.2f} vs credit "
                          f"{rung['credit']:.2f}) pnl {pnl:+.0f}")

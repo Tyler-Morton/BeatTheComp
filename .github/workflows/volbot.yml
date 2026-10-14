@@ -1,11 +1,12 @@
 name: VolBot Daily
 
 on:
-  repository_dispatch:
-    types: [market_open_trigger, volbot_trigger]
-  schedule:
-    - cron: "30 14 * * 1-5"   # ~10:30 AM ET (EDT) — after the open
-    - cron: "30 15 * * 1-5"   # ~11:30 AM ET fallback
+  # RETIRED 2026-10-13 (see volbot/README.md). Entries have been off since
+  # 2026-07-28 and the account is flat, so the schedule and the shared
+  # market_open_trigger dispatch only committed identical log rows twice a day.
+  # Manual runs only:
+  #   repository_dispatch: [market_open_trigger, volbot_trigger]
+  #   schedule: "30 14 * * 1-5", "30 15 * * 1-5"
   workflow_dispatch:
 
 jobs:
@@ -44,7 +45,12 @@ jobs:
           git add -A -- volbot/
           git diff --cached --quiet && echo "Nothing to commit" && exit 0
           git commit -m "VolBot log $(date -u '+%Y-%m-%d %H:%M UTC')"
+          # Fail loudly if all pushes fail: volbot_state.json is the rung ledger,
+          # and losing it silently is how state and broker desync.
+          pushed=0
           for i in 1 2 3; do
-            git pull --rebase origin main && git push && break
+            if git pull --rebase origin main && git push; then pushed=1; break; fi
+            git rebase --abort 2>/dev/null || true
             sleep 5
           done
+          [ "$pushed" = 1 ] || { echo "::error::Could not push volbot state after 3 attempts"; exit 1; }
