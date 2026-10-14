@@ -54,8 +54,9 @@ def main(with_shadow: bool) -> None:
     fake_broker.get_portfolio_value = lambda: 1000.0
     fake_broker.get_current_positions = lambda: {"SHV": 1.0}
     fake_broker.sweep_idle_cash = lambda: None
+    fake_broker.get_account_history = lambda days=365: pd.DataFrame(columns=["timestamp", "equity"])
 
-    def _rebalance(target_weights):
+    def _rebalance(target_weights, **kwargs):
         captured["targets"] = dict(target_weights)
         return []
     fake_broker.rebalance = _rebalance
@@ -69,6 +70,7 @@ def main(with_shadow: bool) -> None:
     import risk
     risk._alert = lambda msg: None
     risk.DAILY_LOG = tmp / "daily_log.csv"
+    risk.BREAKER_STATE_FILE = tmp / "breaker_state.csv"   # never touch the real breaker state
     import watchlist
     watchlist.scan_watchlist = lambda tickers: []
     import time
