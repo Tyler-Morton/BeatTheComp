@@ -1,2 +1,3 @@
 date,marked_through,regime,strategy,decided_on,redecided,scaler,w3x_pre_cap,w3x_post_cap,target_weights,held_weights,traded,turnover,blocked,shadow_equity,champion_equity,notes
 2026-10-14,2026-10-13,RISK_ON,HRP_MOMENTUM,2026-10-14,1,0.610449,0.201487,0.201352,"{""BITO"": 0.201377, ""SHV"": 0.395901, ""TECL"": 0.201352, ""VGT"": 0.20137}","{""BITO"": 0.201377, ""SHV"": 0.395901, ""TECL"": 0.201352, ""VGT"": 0.20137}",1,1.208198,,913.13,913.13,shadow_start
+2026-10-15,2026-10-14,RISK_ON,HRP_MOMENTUM,2026-10-14,0,0.588035,0.194089,0.193959,"{""BITO"": 0.193983, ""SHV"": 0.418082, ""TECL"": 0.193959, ""VGT"": 0.193976}","{""BITO"": 0.203253, ""SHV"": 0.407468, ""TECL"": 0.187982, ""VGT"": 0.201298}",0,0.0,,886.6581,878.16,
