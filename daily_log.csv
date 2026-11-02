@@ -90,3 +90,4 @@ date,strategy,regime,portfolio_value,sharpe,expected_return,annual_vol,orders_pl
 2026-10-28,HRP_MOMENTUM,RISK_ON,877.11,0.976,0.5705,0.5384,4,"{""BITO"": 0.1281, ""SHV"": 0.5709, ""TECL"": 0.0418, ""TLT"": 0.119, ""TQQQ"": 0.14}",ml_shadow p=0.03 would_mult=1.07; unfilled=11.0%
 2026-10-29,HRP_MOMENTUM,RISK_ON,870.95,1.0039,0.5857,0.5386,4,"{""BITO"": 0.1421, ""SHV"": 0.5728, ""TECL"": 0.1426, ""TQQQ"": 0.1423}",ml_shadow p=0.03 would_mult=1.07
 2026-10-30,HRP_MOMENTUM,RISK_ON,842.59,0.8848,0.4256,0.4301,5,"{""BITO"": 0.1411, ""SHV"": 0.589, ""TECL"": 0.133, ""VGT"": 0.1345}",ml_shadow p=0.02 would_mult=1.07; cash_swept; unfilled=13.6%
+2026-11-02,HRP_MOMENTUM,CHOPPY,836.87,-0.6797,0.0125,0.0477,6,"{""BITO"": 0.1436, ""GLD"": 0.1498, ""SHV"": 0.5921, ""TLT"": 0.1144}",ml_shadow p=0.63 would_mult=0.40; unfilled=3.5%
