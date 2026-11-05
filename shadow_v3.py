@@ -1,37 +1,28 @@
-"""V3 paper shadow — a READ-ONLY daily logger beside the champion (EXP-024 / EXP-027).
+"""V3 paper shadow: a read-only daily logger that runs beside the champion (EXP-024, EXP-027).
 
-What V3 is: the champion's own logic (regime → strategy → optimizer → vol-target overlay →
-crumb fold → risk checks → 2% drift rule) with exactly two changes, frozen in
-research/exp024_spec.md §4 and passed on the sealed 2011–2018 window in EXP-027:
-
-  1. Regime detection, strategy selection and the optimizer run only on the first session
-     of each month (the decision uses closes through the last session of the prior month).
-     The resulting base weights B are the "incumbent" for the rest of the month. The
-     overlay scaler, the risk checks and the 2% drift rule still run every day, as live.
-  2. After the overlay, total TQQQ+UPRO+SOXL+TECL target weight is capped at 30%; the
-     excess goes to SHV. The cap applies to TARGETS — held weights may drift above it
-     between trades, exactly as in the EXP-024 engine.
-
-What this module does NOT do — by construction, and enforced by tests:
-  * It never imports `broker` or any Alpaca trading client. It places no orders.
-  * It never calls `regime.detect_regime` (writes regime_log.csv) or `risk.run_all_checks`
-    (writes alerts.log, can send email, reads daily_log.csv for ATH). Their arithmetic is
-    re-implemented here against the SHADOW's own equity.
-  * It reads prices only from prices_cache.parquet — the exact table the champion fetched
-    and saved this morning — and reads the champion's equity from daily_log.csv. It
-    writes only shadow_v3_state.json (atomically) and shadow_v3_log.csv.
-
-Execution convention (matches research/exp024/engine.py and live):
-  The run on session D decides from closes through D−1 (the cache's last row). Weights
-  chosen on D earn close(D−1)→close(D); that return is realised on the NEXT run, when the
-  cache contains close(D). Cost is 5 bp per $ traded (Σ|ΔW|, SHV legs included) and is
-  booked on the same day's return: E ← E·(1 + g − c·traded), as in the engine. SHV earns
-  its actual price return. The shadow starts at the champion's equity on its first day,
-  holding 100% SHV (the engine's starting book), so day one shows a full trade-in.
-
-Run: `python shadow_v3.py` (the workflow does this after the champion's run, with
-continue-on-error, so a shadow failure can never block or alter the champion).
+Run: python shadow_v3.py. The workflow runs it after the champion with continue-on-error,
+so a shadow failure can't block or change the champion.
 """
+
+# V3 is the champion's logic with two changes, frozen in the EXP-024 spec and passed on the
+# held-out 2011-2018 window in EXP-027:
+# 1. Regime, strategy and optimizer only run on the first session of each month, using closes
+#    through the prior month's last session. The overlay, risk checks and 2% drift rule still
+#    run every day, like live.
+# 2. After the overlay, total TQQQ+UPRO+SOXL+TECL target weight is capped at 30% and the excess
+#    goes to SHV. Held weights can drift above the cap between trades, same as the EXP-024 engine.
+#
+# It's read-only on purpose and the tests enforce that. It never imports broker or an Alpaca
+# trading client. It skips regime.detect_regime and risk.run_all_checks because they have side
+# effects (log writes, email), so their math is redone here on the shadow's own equity. Prices come
+# from prices_cache.parquet, the table the champion saved that morning, and champion equity comes
+# from daily_log.csv. It only writes shadow_v3_state.json and shadow_v3_log.csv.
+#
+# Timing matches the EXP-024 engine and live. The run on session D decides from closes through D-1.
+# Those weights earn close(D-1) to close(D), which gets booked on the next run. Cost is 5 bp per
+# dollar traded, SHV legs included, and comes off that same day's return. SHV earns its actual price
+# return. The shadow starts at the champion's equity on its first day, 100% in SHV like the engine,
+# so day one shows a full trade-in.
 
 from __future__ import annotations
 
@@ -51,12 +42,12 @@ from config import ASSETS, CASH_ASSET
 
 logger = logging.getLogger("shadow_v3")
 
-# ── Frozen V3 parameters (exp024_spec.md §4–5; do not tune) ──────────────────
+# Frozen V3 parameters from the EXP-024 spec. Don't tune these.
 VARIANT = "V3"
 LEV = ("TQQQ", "UPRO", "SOXL", "TECL")
 CAP_3X = 0.30
-COST_PER_DOLLAR = 0.0005           # 5 bp per $ traded, the EXP-024/027 primary cost
-MIN_TARGET_WEIGHT = 0.005          # main.py step 5d crumb fold
+COST_PER_DOLLAR = 0.0005           # 5 bp per dollar traded, the primary cost in EXP-024 and EXP-027
+MIN_TARGET_WEIGHT = 0.005          # same crumb fold as main.py
 STATE_VERSION = 1
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -66,30 +57,30 @@ PRICE_CACHE_PATH = BASE_DIR / "prices_cache.parquet"
 DAILY_LOG_PATH = Path(config.DAILY_LOG)
 
 LOG_FIELDS = [
-    "date",               # run date (the session the target is for)
-    "marked_through",     # last close the shadow equity is marked to (= D−1)
-    "regime",             # incumbent regime (decided on `decided_on`)
+    "date",               # run date, the session the target is for
+    "marked_through",     # last close the shadow equity is marked to (D-1)
+    "regime",             # incumbent regime, decided on `decided_on`
     "strategy",           # incumbent strategy
     "decided_on",         # session the incumbent was decided
-    "redecided",          # 1 if regime/strategy/optimizer ran today
-    "scaler",             # vol-target overlay scaler, recomputed daily
-    "w3x_pre_cap",        # Σ 3x target weight after the overlay, before the cap
-    "w3x_post_cap",       # Σ 3x target weight after cap + crumb fold
+    "redecided",          # 1 if regime, strategy and optimizer ran today
+    "scaler",             # vol overlay scaler, recomputed daily
+    "w3x_pre_cap",        # total 3x target weight after the overlay, before the cap
+    "w3x_post_cap",       # total 3x target weight after the cap and crumb fold
     "target_weights",     # JSON, final V3 target
-    "held_weights",       # JSON, shadow book after today's (hypothetical) trade
+    "held_weights",       # JSON, shadow book after today's hypothetical trade
     "traded",             # 1 if the shadow traded today
-    "turnover",           # Σ|T − H| traded today (fraction of equity, both legs)
-    "blocked",            # risk-check reasons, ';'-joined, empty if none
-    "shadow_equity",      # $ marked through `marked_through`, before today's cost
+    "turnover",           # sum of |T - H| traded today, as a fraction of equity, both legs
+    "blocked",            # risk-check reasons joined with ';', empty if none
+    "shadow_equity",      # dollars marked through `marked_through`, before today's cost
     "champion_equity",    # champion portfolio_value logged today
     "notes",
 ]
 
 
-# ── Pure pieces (no I/O) ──────────────────────────────────────────────────────
+# Pure functions, no I/O
 
 def regime_from_prices(prices: pd.DataFrame) -> str:
-    """`regime.detect_regime(spy, tlt)` arithmetic without its regime_log.csv write."""
+    """Same math as regime.detect_regime, without its regime_log.csv write."""
     from regime import _flight_signal, _majority_vote, _trend_signal, _vol_signal
     spy = prices.get("SPY", None)
     tlt = prices.get("TLT", None)
@@ -100,16 +91,18 @@ def regime_from_prices(prices: pd.DataFrame) -> str:
 
 
 def asset_returns_from_prices(prices: pd.DataFrame) -> pd.DataFrame:
-    """Exactly main.py step 2: get_returns(prices), restricted to ASSETS."""
+    """Same as main.py: get_returns(prices), limited to ASSETS."""
     from data import get_returns
     returns = get_returns(prices)
     return returns[[c for c in ASSETS if c in returns.columns]]
 
 
 def base_decision(prices: pd.DataFrame) -> tuple[str, str, dict[str, float]]:
-    """main.py steps 4–5: regime → select_strategy → optimize. Sentiment is neutral
-    (SENTIMENT_ENABLED=False makes the champion's modifiers no-ops) and the alpha sleeve
-    is off, so the champion's base target is the optimizer's weights."""
+    """Runs regime, select_strategy and optimize, same as main.py.
+
+    SENTIMENT_ENABLED=False makes the champion's sentiment modifiers no-ops and the alpha sleeve
+    is off, so the champion's base target is just the optimizer's weights.
+    """
     from optimizer import optimize, select_strategy
     asset_returns = asset_returns_from_prices(prices)
     regime = regime_from_prices(prices)
@@ -121,14 +114,14 @@ def base_decision(prices: pd.DataFrame) -> tuple[str, str, dict[str, float]]:
 
 def final_target(B: dict[str, float], asset_returns: pd.DataFrame
                  ) -> tuple[float, float, float, dict[str, float]]:
-    """Overlay → 3x cap → crumb fold. Returns (scaler, w3x_pre_cap, w3x_post_cap, T)."""
+    """Applies the overlay, 3x cap and crumb fold. Returns (scaler, w3x_pre_cap, w3x_post_cap, T)."""
     if config.RISK_OVERLAY_ENABLED:
         from risk_overlay import apply_overlay, vol_target_scaler
-        # The ML throttle is off in the champion and out of V3's spec (the engine runs the
-        # overlay with use_ml=False); shadow_ml only logs and never moves weights.
+        # The ML throttle is off in the champion and isn't in V3's spec (the engine runs the
+        # overlay with use_ml=False). shadow_ml only logs and never moves weights.
         T, _ = apply_overlay(dict(B), asset_returns, target_vol=config.OVERLAY_TARGET_VOL,
                              use_ml=False, shadow_ml=False, cash_asset=CASH_ASSET)
-        # Same pure call apply_overlay makes; info[] only carries a 3dp-rounded copy.
+        # Same call apply_overlay makes. Its info dict only has a copy rounded to 3 places.
         s = float(np.clip(vol_target_scaler(asset_returns, B, config.OVERLAY_TARGET_VOL),
                           0.0, 1.0))
     else:
@@ -152,7 +145,11 @@ def final_target(B: dict[str, float], asset_returns: pd.DataFrame
 
 def risk_gate(T: dict[str, float], asset_returns: pd.DataFrame,
               equity: float, ath: float) -> list[str]:
-    """risk.run_all_checks arithmetic, side-effect free, on the SHADOW's equity/ATH."""
+    """Same math as risk.run_all_checks with no side effects, on the shadow's equity and ATH.
+
+    It also blocks on drawdown, which run_all_checks doesn't check any more. The champion's breaker
+    only de-risks now, so in a drawdown the shadow holds while the champion can sell toward cash.
+    """
     reasons = []
     if ath > 0 and equity / ath - 1.0 < -config.DRAWDOWN_CIRCUIT_BREAKER:
         reasons.append("drawdown")
@@ -178,9 +175,9 @@ def _round(d: dict[str, float]) -> dict[str, float]:
 
 def step(state: dict | None, prices: pd.DataFrame, today: date,
          champion_equity: float) -> tuple[dict, dict]:
-    """Advance the shadow by one session. Pure: returns (new_state, log_row).
+    """Advances the shadow one session. Pure, returns (new_state, log_row).
 
-    `prices` must contain closes through the session before `today` only.
+    `prices` must only have closes through the session before `today`.
     """
     notes: list[str] = []
     prices = prices.sort_index()
@@ -188,7 +185,7 @@ def step(state: dict | None, prices: pd.DataFrame, today: date,
         raise ValueError("prices must end before `today` (decision uses closes through D−1)")
     last_close = prices.index[-1]
 
-    # ── 1. Initialise, or mark the held book to the newest close ──────────────
+    # Start the shadow, or mark the held book to the newest close.
     if state is None:
         if not (champion_equity > 0):
             raise ValueError("cannot start the shadow without a champion equity reading")
@@ -232,7 +229,7 @@ def step(state: dict | None, prices: pd.DataFrame, today: date,
         state["held"], state["equity"] = H, E
         state["marked_through"] = str(last_close.date())
 
-    # ── 2. Monthly re-decision (first session of each month, or first run) ────
+    # Re-decide on the first session of each month, or on the first run.
     asset_returns = asset_returns_from_prices(prices)
     month = today.strftime("%Y-%m")
     redecided = False
@@ -247,7 +244,7 @@ def step(state: dict | None, prices: pd.DataFrame, today: date,
             logger.exception("V3 re-decision failed")
             notes.append(f"decision_error={type(exc).__name__}")
 
-    # ── 3. Daily overlay + cap + risk checks + 2% drift rule ──────────────────
+    # Daily overlay, cap, risk checks and 2% drift rule.
     s = pre = post = None
     T: dict[str, float] = {}
     blocked: list[str] = []
@@ -268,8 +265,8 @@ def step(state: dict | None, prices: pd.DataFrame, today: date,
         notes.append("no_target_hold")
 
     if config.SENTIMENT_ENABLED or config.ALPHA_SLEEVE_ENABLED or config.OVERLAY_ML_ENABLED:
-        # V3 was specified and tested without these; if the champion turns one on, the
-        # live-vs-shadow comparison is no longer like-for-like. Flag it on every row.
+        # V3 was specified and tested without these. If the champion turns one on, the
+        # comparison stops being like for like, so flag it on every row.
         notes.append("champion_config_beyond_V3_spec")
 
     state["last_run_date"] = str(today)
@@ -295,11 +292,13 @@ def step(state: dict | None, prices: pd.DataFrame, today: date,
     return state, row
 
 
-# ── I/O ───────────────────────────────────────────────────────────────────────
+# I/O
 
 def champion_equity_for(today: date, daily_log: Path) -> float | None:
-    """The champion's portfolio_value from today's daily_log row; None if it has no row.
-    NaN when the row exists but the value was blanked as implausible."""
+    """Champion's portfolio_value from today's daily_log row.
+
+    None if there's no row. NaN if the row exists but the value was blanked as implausible.
+    """
     if not Path(daily_log).exists():
         return None
     df = pd.read_csv(daily_log)
@@ -358,7 +357,7 @@ def append_row(row: dict, path: Path) -> None:
 
 def run(today: date | None = None, *, state_path: Path = STATE_PATH, log_path: Path = LOG_PATH,
         price_cache: Path = PRICE_CACHE_PATH, daily_log: Path = DAILY_LOG_PATH) -> str:
-    """One shadow session. Returns a short status string. Never trades."""
+    """Runs one shadow session and returns a short status string. Never trades."""
     today = today or datetime.today().date()
     state = load_state(state_path)
     if state is not None and state.get("last_run_date") == str(today):
@@ -367,8 +366,8 @@ def run(today: date | None = None, *, state_path: Path = STATE_PATH, log_path: P
 
     champ = champion_equity_for(today, daily_log)
     if champ is None:
-        # No champion row today ⇒ market closed, duplicate firing that exited early, or the
-        # champion crashed before logging — in every case the price cache is not today's.
+        # No champion row today means the market was closed, a duplicate run exited early, or
+        # the champion crashed before logging. In all of those the price cache isn't today's.
         logger.info("No champion daily_log row for %s — shadow skipped.", today)
         return "no_champion_row"
     if state is None and not (champ > 0):
@@ -377,7 +376,7 @@ def run(today: date | None = None, *, state_path: Path = STATE_PATH, log_path: P
 
     prices = pd.read_parquet(price_cache)
     prices.index = pd.to_datetime(prices.index)
-    prices = prices[prices.index.date < today]          # closes through D−1 only
+    prices = prices[prices.index.date < today]          # closes through D-1 only
     if len(prices) < 2:
         raise RuntimeError("price cache has no usable history before today")
 

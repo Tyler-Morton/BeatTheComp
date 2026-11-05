@@ -39,7 +39,7 @@ def test_target_weights_sum_to_one_and_fold_crumbs(chmain):
     base = {"QQQ": 0.45, "XLP": 0.004, "TLT": 0.30, "GLD": 0.246}
     w = chmain.target_weights(base, 0.5)
     assert sum(w.values()) == pytest.approx(1.0, abs=1e-3)
-    assert "XLP" not in w                                   # 0.002 after scaling -> crumb
+    assert "XLP" not in w                                   # 0.002 after scaling, so it's a crumb
     assert w["SHV"] == pytest.approx(0.5 + 0.002, abs=1e-4)
     assert all(v >= chmain.MIN_WEIGHT for k, v in w.items() if k != "SHV")
 
@@ -89,9 +89,9 @@ def test_challenger_pins_its_vol_estimator(chmain, chbt, monkeypatch):
 
 
 def test_backtest_has_no_same_bar_lookahead(chbt, monkeypatch):
-    """Scaler that 'knows' today's return: full size on up days, flat on down days.
-    With look-ahead it books every up day and dodges every down day. Causally it
-    is always one day late on an alternating series, so it must lose."""
+    """This scaler goes full size if the last return it sees is up, and flat if it's down.
+    With look-ahead that books every up day and dodges every down day. Without look-ahead it's
+    always one day late on an alternating series, so it has to lose."""
     n = 400
     idx = pd.bdate_range("2015-01-01", periods=n)
     rets = np.where(np.arange(n) % 2 == 0, 0.01, -0.01)

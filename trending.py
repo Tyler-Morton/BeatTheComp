@@ -1,9 +1,7 @@
-"""Finding fresh stocks to watch each morning, using Claude + web search.
+"""Trending-stock discovery with Claude and web search. Disabled (TRENDING_DISCOVERY_ENABLED).
 
-This runs first thing, before the watchlist scan. It basically asks Claude, "what's
-moving right now?" — earnings pops, buyouts, breakouts, anything in the news — and
-tacks those names onto our small permanent watchlist. So the universe the bot looks
-at is mostly rebuilt from scratch every day instead of being a fixed list.
+When on, it runs before the watchlist scan, asks Claude what's moving right now (earnings pops,
+buyouts, news) and adds those names to the small permanent watchlist.
 """
 
 import json
@@ -21,7 +19,7 @@ TRENDING_RAW_LOG = Path(__file__).parent / "trending_raw.csv"
 
 
 def _log_alert(message: str) -> None:
-    """Make some noise in the alerts file when discovery goes wrong."""
+    """Write to the alerts file when discovery goes wrong."""
     try:
         with open(ALERTS_LOG, "a") as f:
             f.write(f"{datetime.now().isoformat()} | TRENDING: {message}\n")
@@ -30,10 +28,10 @@ def _log_alert(message: str) -> None:
 
 
 def _log_raw_candidates(tickers: list[str], reasons: dict[str, str]) -> None:
-    """Save every name Claude suggested, before any filtering.
+    """Save the names that passed _parse_response's ticker check and TRENDING_MAX_PICKS cut.
 
-    This is our paper trail — when we wonder later "why didn't the bot pick X?",
-    this file shows whether X was even on the table that morning.
+    If we later wonder why the bot didn't pick X, this shows whether X made it that far that
+    morning.
     """
     try:
         new_file = not TRENDING_RAW_LOG.exists()
@@ -92,7 +90,7 @@ _VALID_TICKER_RE = re.compile(r"^[A-Z]{1,5}$")
 
 
 def _validate_ticker(ticker: str) -> bool:
-    """Cheap junk filter — a real ticker is just 1-5 capital letters."""
+    """A real ticker is just 1-5 capital letters."""
     return bool(_VALID_TICKER_RE.match(ticker))
 
 
@@ -101,7 +99,7 @@ def _extract_text(content: list) -> str:
 
 
 def _parse_response(text: str) -> tuple[list[str], dict[str, str]]:
-    """Fish the ticker list and the reasons back out of Claude's reply."""
+    """Pull the ticker list and the reasons out of Claude's reply."""
     matches = re.findall(r"\{[^{}]*(?:\{[^{}]*\}[^{}]*)*\}", text, re.DOTALL)
     for m in matches:
         try:
@@ -116,11 +114,10 @@ def _parse_response(text: str) -> tuple[list[str], dict[str, str]]:
 
 
 def discover_trending() -> list[dict]:
-    """The one function main.py calls — get today's trending names.
+    """Today's trending names, as a list of {ticker, reason}.
 
-    Hands back a list of {ticker, reason}. If the API is down or something breaks,
-    it just returns an empty list and the pipeline carries on with the small
-    permanent watchlist instead of crashing.
+    If the API is down or something breaks it returns an empty list, and the run carries on with
+    the small permanent watchlist.
     """
     api_key = os.getenv("ANTHROPIC_API_KEY")
     if not api_key:
@@ -132,14 +129,14 @@ def discover_trending() -> list[dict]:
         client = anthropic.Anthropic(api_key=api_key)
         response = client.messages.create(
             model=MODEL,
-            max_tokens=3000,   # was 1500 — need more tokens for 30 picks + reasons
+            max_tokens=3000,   # enough for 30 picks plus reasons
             tools=[{"type": "web_search_20250305", "name": "web_search"}],
             messages=[{"role": "user", "content": _build_prompt()}],
         )
         text = _extract_text(response.content)
         tickers, reasons = _parse_response(text)
 
-        # Write down what came back no matter what, so we always have a record.
+        # Record what came back no matter what.
         _log_raw_candidates(tickers, reasons)
 
         if not tickers:

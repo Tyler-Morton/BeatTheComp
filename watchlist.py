@@ -1,9 +1,7 @@
-"""Scans the watchlist and flags interesting moves — it only ever raises alerts.
+"""Scans the watchlist and flags interesting moves.
 
-Important: nothing in this file places a trade. It pulls price/momentum data and
-news sentiment for each name, logs it all, and shouts when something looks unusual.
-The actual buying decisions happen elsewhere (the alpha sleeve); this is the radar,
-not the trigger.
+Nothing in this file places a trade. It logs price, momentum and news sentiment for each name and
+alerts on anything unusual. Buying decisions happen in the alpha sleeve.
 """
 
 import csv
@@ -47,7 +45,7 @@ def _fetch_ticker_data(ticker: str) -> dict | None:
 
 
 def _get_sentiment(ticker: str) -> dict:
-    """Get news sentiment for one ticker, borrowing the exact prompt from sentiment.py."""
+    """News sentiment for one ticker, using the same prompt as sentiment.py."""
     import anthropic
     from sentiment import MODEL, MAX_TOKENS, _build_prompt, _extract_text, _parse_json, _default_result
 
@@ -106,11 +104,10 @@ def _write_alerts(alerts: list[dict]) -> None:
 
 
 def scan_watchlist(tickers: list[str] | None = None) -> list[dict]:
-    """Scan the whole watchlist, doing all the sentiment in one batch.
+    """Scan the whole watchlist, with all the sentiment in one batch.
 
-    Batching matters here: asking about all ~35 names in a single Claude call takes
-    about a minute instead of five, and it sidesteps the rate-limiting headaches you
-    get from firing off dozens of calls back to back.
+    With trending discovery off, the list is just the 5 names in WATCHLIST. With sentiment off too,
+    the batch call returns neutral scores and makes no API calls.
     """
     if tickers is None:
         tickers = WATCHLIST
@@ -121,7 +118,6 @@ def scan_watchlist(tickers: list[str] | None = None) -> list[dict]:
     alert_rows: list[dict] = []
     now = datetime.now().isoformat()
 
-    # ── Step 1: pull price + momentum numbers for every name (via yfinance) ─
     price_data: dict[str, dict] = {}
     valid_tickers: list[str] = []
     for ticker in tickers:
@@ -131,7 +127,6 @@ def scan_watchlist(tickers: list[str] | None = None) -> list[dict]:
             valid_tickers.append(ticker)
     logger.info("Watchlist price data: %d/%d tickers", len(valid_tickers), len(tickers))
 
-    # ── Step 2: get news sentiment for everyone in a single batch call ──────
     sentiments: dict[str, dict] = {}
     if valid_tickers:
         try:
@@ -141,7 +136,6 @@ def scan_watchlist(tickers: list[str] | None = None) -> list[dict]:
         except Exception as exc:
             logger.warning("Watchlist batch sentiment failed: %s", exc)
 
-    # ── Step 3: stitch the two together into log rows and fire any alerts ───
     for ticker in valid_tickers:
         data = price_data[ticker]
         sentiment = sentiments.get(ticker, {"score": 0.0, "summary": ""})

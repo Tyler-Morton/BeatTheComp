@@ -1,14 +1,14 @@
 name: Daily Portfolio Rebalance
 
 on:
-  # PRIMARY: external cron (cron-job.org) POSTs to GitHub's dispatch API at
-  # 6:30 AM PT sharp. Fires within ~5 seconds — defeats GitHub's unreliable
-  # internal cron.
+  # Primary: cron-job.org POSTs to GitHub's dispatch API at 6:30 AM PT. It fires within about
+  # 5 seconds, which gets around GitHub's unreliable internal cron.
   repository_dispatch:
     types: [market_open_trigger]
 
-  # FALLBACK: GitHub's own cron (can lag 15min–3hr). Safety net only.
-  # Duplicate-run guard in main.py ensures only the first run does work.
+  # Fallback only: GitHub's own cron, which can lag 15 min to 3 hours. The duplicate-run guard
+  # in main.py stops a run once today's row is logged. There's no concurrency key, so two runs
+  # that overlap could both get past it.
   schedule:
     - cron: "32 13 * * 1-5"   # 6:32 AM PDT / 5:32 AM PST
     - cron: "00 14 * * 1-5"   # 7:00 AM PDT / 6:00 AM PST
@@ -17,7 +17,7 @@ on:
     - cron: "30 15 * * 1-5"   # 8:30 AM PDT / 7:30 AM PST
     - cron: "00 16 * * 1-5"   # 9:00 AM PDT / 8:00 AM PST
 
-  workflow_dispatch:  # manual trigge
+  workflow_dispatch:  # manual trigger
 
 jobs:
   rebalance:
@@ -48,27 +48,24 @@ jobs:
         run: python main.py
 
       - name: Commit updated CSV logs + price cache
-        if: always()   # run even if pipeline failed — useful for partial state
+        if: always()   # run even if the pipeline failed, to keep partial state
         run: |
           git config user.name  "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          # Include parquet cache so future rate-limited runs can fall back to it.
-          # NOTE: these must be git-glob pathspecs, not shell globs. The old line
-          # named ignored files explicitly (alerts.log, and trending_raw.csv via the
-          # shell's *.csv), which makes `git add` exit non-zero — and on the runner's
-          # git 2.54 it staged NOTHING at all, so every daily row from 2026-07-07 on
-          # was written and then silently dropped ("Nothing to commit" while the log
-          # said it had just written the row). `2>/dev/null || true` hid the whole
-          # thing. Local git 2.50 still stages the valid paths, which is why this
-          # only broke in CI. `:(glob)` keeps `*` from crossing `/` (root-only, so we
-          # don't grab challenger/), and glob pathspecs skip ignored files silently
-          # instead of erroring — correct under either git version.
+          # Include the parquet cache so rate-limited runs can fall back to it.
+          # These have to be git glob pathspecs, not shell globs. The old line named ignored files
+          # (alerts.log, and trending_raw.csv through the shell's *.csv), which makes `git add` exit
+          # non-zero. On the runner's git 2.54 it staged nothing at all, so daily rows were written
+          # and then silently dropped, and `2>/dev/null || true` hid it. Local git 2.50 still stages
+          # the valid paths, so this only broke in CI. `:(glob)` keeps `*` from crossing `/`, so it
+          # stays at the root and skips challenger/. Glob pathspecs also skip ignored files without
+          # an error under either git version.
           git add -A -- ':(glob)*.csv' ':(glob)*.parquet'
           git diff --cached --quiet && echo "Nothing to commit" && exit 0
           git commit -m "Daily log $(date -u '+%Y-%m-%d %H:%M UTC')"
-          # The loop's exit status is sleep's, so three failed pushes used to end
-          # this step green and the day's rows were lost without any signal. A
-          # failed rebase also stayed in progress and doomed the retries.
+          # The loop's exit status is sleep's, so three failed pushes would end this step green
+          # and lose the day's rows with no signal. A failed rebase also stays in progress and
+          # dooms the retries, so it gets aborted.
           pushed=0
           for i in 1 2 3; do
             if git pull --rebase origin main && git push; then pushed=1; break; fi
@@ -78,14 +75,12 @@ jobs:
           done
           [ "$pushed" = 1 ] || { echo "::error::Could not push logs after 3 attempts"; exit 1; }
 
-      # ── V3 paper shadow (EXP-024/027): READ-ONLY, runs strictly after the champion ──
-      # It runs after the champion's logs are already committed and pushed, it gets NO
-      # secrets (no Alpaca keys, so it cannot trade even in principle), and it is
-      # continue-on-error with a timeout, so a shadow crash, hang or push failure can
-      # never block or alter the champion. It reads the prices_cache.parquet and
-      # daily_log.csv the champion wrote this run, and writes only shadow_v3_log.csv and
-      # shadow_v3_state.json. It skips itself on days the champion logged no row (market
-      # closed, duplicate cron firing) and when it has already logged today.
+      # V3 paper shadow (EXP-024/027). Read-only, and it runs strictly after the champion: it reads
+      # the prices_cache.parquet and daily_log.csv the champion wrote this run, once they're
+      # committed and pushed. It gets no secrets or Alpaca keys, so it can't trade, and it's
+      # continue-on-error with a timeout, so a crash, hang or push failure can't block or alter the
+      # champion. It writes only shadow_v3_log.csv and shadow_v3_state.json. It skips days the
+      # champion logged no row (market closed, duplicate cron firing) and days it already logged.
       - name: V3 paper shadow (read-only, no orders)
         if: ${{ !cancelled() }}
         continue-on-error: true

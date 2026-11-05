@@ -1,63 +1,77 @@
-# volbot v2 — LADDERED 3-index vol-premium paper sleeve (SPY/QQQ/IWM)
+# volbot v2: laddered vol-premium paper sleeve on SPY, QQQ and IWM
 
-> **RETIRED 2026-10-13.** The scheduled workflow is off (`workflow_dispatch` only);
-> code, state and logs stay in place for the record. Reason: EXP-010 on real OPRA
-> quotes (2020-07 to 2026-07) gave Sharpe −1.54 (−8.0%/yr, maxDD −40.6%) against a
-> pre-registered bar of 0.70, and the live sleeve netted −$68 over 6 condors.
-> Entries were halted 2026-07-28; the account has been flat cash since, and the
-> expiry-day exit path also crashed on Alpaca HTTP 500s (Aug 13/14/20/21).
+> **Retired 2026-10-13.** The scheduled workflow is off (`workflow_dispatch` only). Code, state
+> and logs stay in place for the record. EXP-010 on real OPRA quotes (2020-07 to 2026-07) gave
+> Sharpe -1.54 (-8.0%/yr, max drawdown -40.6%) against a pre-registered bar of 0.70, and the paper
+> sleeve netted -$68 over 6 condors. Entries were halted 2026-07-28, the last rungs closed
+> 2026-08-24 and the account has been flat cash since. The expiry-day exit path also crashed on
+> Alpaca HTTP 500s (Aug 13/14/20/21).
 
-A 4th, **isolated** paper sleeve that harvests the variance risk premium by selling defined-risk
-iron condors on SPY, QQQ and IWM — each gated by its own vol index (VIX/VXN/RVX), only when vol
-is expensive (rich-vol tercile) and the term structure is calm. Entries ladder weekly per
-underlying (max 4 rungs each, 3% risk per rung, 25% total at-risk cap).
-Modeled (research/volbot_ladder_backtest.py, net, real bill yields): ~+21%/yr, 12.3% vol,
-Sharpe 1.27, maxDD −13.7%, ~41 trades/yr, corr-to-equity-sleeves ~+0.2.
-Full design + evidence: `research/volbot_spec.md` + `research/metabook_spec.md`.
+An isolated paper sleeve in its own Alpaca account, separate from the champion and challenger. It
+sold defined-risk iron condors on SPY, QQQ and IWM to harvest the variance risk premium. Each was
+gated by its own vol index (VIX/VXN/RVX) and only traded when vol was expensive (rich-vol tercile)
+and the term structure was calm. Entries laddered weekly per underlying (max 4 rungs each, 3% risk
+per rung, 25% total at-risk cap).
 
-> **This is a MODELED edge.** The paper forward-test is the validation gate. We are gathering the
-> one thing that can't be overfit: do real SPY option fills match the modeled premium?
+Modeled (research/volbot_ladder_backtest.py, net, real bill yields): about +21%/yr, 12.3% vol,
+Sharpe 1.27, max drawdown -13.7%, about 41 trades/yr, correlation to the equity sleeves about +0.2.
+Full design and evidence: `research/volbot_spec.md` and `research/metabook_spec.md`. `research/` is
+gitignored, so those stay local.
+
+> That was a modeled edge, and the paper forward-test was the validation gate: would real option
+> fills match the modeled premium? They didn't. Fills came in at 5-20% of wing width
+> (`volbot_trades.csv`), under the 29-37% the backtest's pricing expects (`config.py`).
 
 ## Setup (one time)
-1. **Create / open the NEW paper account** on Alpaca (separate from champion & challenger).
-2. **Generate paper API keys** and add them to the repo's `.env` (gitignored):
+1. Create or open the new paper account on Alpaca, separate from champion and challenger.
+2. Generate paper API keys and add them to the repo's `.env` (gitignored):
    ```
    VOLBOT_ALPACA_API_KEY=PK...
    VOLBOT_ALPACA_SECRET_KEY=...
    ```
-3. **Account settings on that paper account:**
-   - **Options Level 3** — paper accounts have it automatically. Nothing to apply for.
-   - **Margin account** (not cash) — needed to hold spreads (~$1,000 margin/spread). Paper starts
-     at $100k, well over the $2k minimum. Defined-risk spreads do **not** borrow money — the
-     "margin" is just collateral for the capped max loss. No loan, no interest, and it's paper.
-   - Options data: the default free feed is fine (daily cadence).
+3. Account settings on that paper account:
+   - Options Level 3. Paper accounts have it automatically, so there's nothing to apply for.
+   - Margin account, not cash. It's needed to hold spreads (about $1,000 margin per spread). Paper
+     starts at $100k, well over the $2k minimum. Defined-risk spreads don't borrow money: the
+     margin is just collateral for the capped max loss, with no loan or interest.
+   - Options data: the default free feed is fine at a daily cadence.
 
 ## Run
 ```
 cd volbot
 python volbot.py
 ```
-- **`DRY_RUN = True`** (default in `config.py`): computes and logs the intended trade, submits
-  NOTHING. Watch a few runs — confirm it pulls the chain, picks ~16Δ strikes ~30 DTE, and shows a
-  sane credit. Then flip `DRY_RUN = False` to actually paper-trade.
-- Runs once per invocation (one daily "tick"). Wire it to GitHub Actions / cron later, like the
-  other bots, once you trust it.
+- Runs once per invocation (one daily tick). `.github/workflows/volbot.yml` starts it by hand. It
+  ran on a schedule until the sleeve was retired.
+- `DRY_RUN = False` in `config.py`, so any order goes to the paper account. Set `DRY_RUN = True` to
+  log the intended trade and submit nothing.
+- `ENTRIES_ENABLED = False` in `config.py`, so a run only manages open rungs. There are none now.
 
 ## What it does each run
-1. Pulls SPY/QQQ/IWM spots (Alpaca) + VIX/VXN/RVX + VIX3M (FRED) → per-underlying VRP and its
-   rolling top-tercile, plus the market-wide contango gate (VIX < VIX3M).
-2. Manages every open rung: hold to expiry (expire-worthless), closing a rung only on the
-   2×-credit loss-stop or at ≤ 1 DTE (assignment dodge).
-3. Entries per underlying: if its filters pass (rich VRP + own IV < 30 + contango), it's been
-   ≥ 7 days since that name's last entry, it has < 4 open rungs, and total at-risk stays
-   ≤ 25% of equity → open one ~30-DTE, ~16Δ condor (wings ≈ 1% of spot), sized to 3% risk.
-4. Logs to `volbot_log.csv`; the rung list lives in `volbot_state.json`.
+1. Pulls SPY/QQQ/IWM spots (Alpaca) and VIX/VXN/RVX plus VIX3M (FRED) to get each underlying's VRP
+   and its rolling top tercile, plus the market-wide contango gate (VIX < VIX3M).
+2. Manages every open rung: hold to expiry (expire-worthless), closing a rung only on the 2x-credit
+   loss stop or at 1 DTE or less (assignment dodge).
+3. Stops here while `ENTRIES_ENABLED` is False. Otherwise, entries per underlying: if its filters
+   pass (rich VRP, own IV < 30, contango), it's been at least 7 days since that name's last entry,
+   it has fewer than 4 open rungs, and total at-risk stays within 25% of equity, it opens one condor
+   at about 30 DTE and 16 delta (wings about 1% of spot), sized to 3% risk. The order works a limit
+   ladder from mid down to a credit floor (`MIN_CREDIT_FRAC`, 10% of wing width). If nobody pays the
+   floor, it skips that rung.
+4. Beta parking (`BETA_PARK`) would then put cash above a reserve into SPY. It's off, because long
+   SPY and short puts lose in the same event (see `config.py`).
+5. Logs to `volbot_log.csv`, one row per day. Each closed condor adds a row to `volbot_trades.csv`
+   with its fill, exit cost and realized P&L. The rung list lives in `volbot_state.json`.
 
 ## Safety
-- Own keys, own account, own logs — **cannot touch champion/challenger.**
-- `PAPER = True` hard guard; no path to live.
-- `DRY_RUN` gate so nothing trades until you flip it.
+- Own keys, own account, own logs, so it can't touch champion or challenger.
+- `PAPER = True` hard guard, with no path to live.
+- `ENTRIES_ENABLED = False` stops new trades, and a missing flag counts as off.
+- `DRY_RUN` is there as a gate, but it's off.
 
 ## Files
-- `config.py` — all parameters + the safety guards.
-- `volbot.py` — data, filters, strike selection, sizing, orders, management, run.
+- `config.py`: all parameters and the safety guards.
+- `volbot.py`: data, filters, strike selection, sizing, orders, management, run.
+- `volbot_state.json`: open rungs and the last entry date per underlying.
+- `volbot_log.csv`: daily snapshot of equity, vol and at-risk.
+- `volbot_trades.csv`: one row per closed condor.

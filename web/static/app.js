@@ -1,8 +1,8 @@
-/* Trading desk front end. Vanilla JS, hand-rolled SVG charts, hash routing.
-   Everything here is read-only: it only GETs the JSON the Flask app serves. */
+/* Trading desk front end. Plain JS, SVG charts built by hand, hash routing.
+   Read-only: it only GETs the JSON the Flask app serves. */
 "use strict";
 
-// ───────────────────────────── formatting ─────────────────────────────
+// Formatting
 const MINUS = "−";
 const isNum = (v) => typeof v === "number" && isFinite(v);
 const sign = (v) => (v > 0 ? "+" : v < 0 ? MINUS : "");
@@ -37,7 +37,6 @@ function esc(s) {
 }
 const $ = (sel, root = document) => root.querySelector(sel);
 
-// ───────────────────────────── data ─────────────────────────────
 const cache = new Map();
 async function api(path, fresh = false) {
   if (!fresh && cache.has(path)) return cache.get(path);
@@ -52,9 +51,7 @@ async function api(path, fresh = false) {
 
 const BOOK_COLOR = { champion: "var(--s1)", challenger: "var(--s2)", volbot: "var(--s3)" };
 const SERIES_VARS = ["var(--s1)", "var(--s2)", "var(--s3)", "var(--s4)", "var(--s5)", "var(--s6)"];
-const STATUS_LABEL = { ran: "Ran", missed: "Missed", failed: "Failed", scheduled: "Scheduled" };
 
-// ───────────────────────────── tooltip ─────────────────────────────
 const tip = () => $("#tip");
 function showTip(html, x, y) {
   const t = tip();
@@ -75,7 +72,7 @@ function tipRows(date, rows) {
 const sw = (color, kind = "line") =>
   kind === "dash" ? `<i class="swatch dash"></i>` : `<i class="swatch ${kind}" style="background:${color}"></i>`;
 
-// ───────────────────────────── charts ─────────────────────────────
+// Charts
 const NS = "http://www.w3.org/2000/svg";
 function niceTicks(lo, hi, n = 5) {
   if (lo === hi) { lo -= 1; hi += 1; }
@@ -101,7 +98,7 @@ function weekTicks(dates, maxN) {
   return out;
 }
 
-/* Responsive chart mount: re-draws on width change. */
+// Draws the chart, then redraws it when its width changes.
 function mount(host, draw) {
   let w = 0;
   const go = () => {
@@ -113,10 +110,9 @@ function mount(host, draw) {
   go();
 }
 
-/**
- * Line chart on a trading-day x axis.
- * opt: { dates, series:[{label,color,values,dash,width,fill}], height, yFmt, tipFmt, zero, yMin, yMax }
- */
+// Line chart on a trading-day x axis.
+// opt: { dates, series: [{ label, color, values, dash, width, fill, fillOpacity }], height,
+//        yFmt, tipFmt, zero, yMin, yMax, ticks, aria, extraTip }
 function lineChart(host, opt) {
   mount(host, (W) => {
     const H = opt.height || 240;
@@ -188,7 +184,7 @@ function lineChart(host, opt) {
   });
 }
 
-/** Stacked 100% area of weights. opt: { dates, keys:[{key,label,color}], rows } */
+// Stacked 100% area chart of weights. opt: { dates, keys: [{ key, label, color }], rows, height }
 function stackChart(host, opt) {
   mount(host, (W) => {
     const H = opt.height || 220, n = opt.dates.length;
@@ -230,7 +226,7 @@ function stackChart(host, opt) {
   });
 }
 
-/** Simple bars on a trading-day axis. opt: { dates, values, color, yFmt, height } */
+// Bars on a trading-day axis. opt: { dates, values, color, yFmt, height, label, aria }
 function barChart(host, opt) {
   mount(host, (W) => {
     const H = opt.height || 160, n = opt.dates.length;
@@ -290,7 +286,7 @@ function sparkline(series, color) {
   </svg>`;
 }
 
-// ───────────────────────────── components ─────────────────────────────
+// Shared components
 function statusPill(st) {
   if (!st) return "";
   const gh = st.gh ? ` · Actions: ${st.gh.conclusion || st.gh.status} ${ago(st.gh.at)}` : "";
@@ -323,7 +319,7 @@ function bindSeg(root, name, fn) {
 function loading() { return `<div class="skeleton"></div><div class="grid g3 mt"><div class="skeleton"></div><div class="skeleton"></div><div class="skeleton"></div></div>`; }
 function errorBox(e) { return `<div class="callout warn"><span class="bar"></span><div><b>Couldn't load data.</b> ${esc(e.message || e)}</div></div>`; }
 
-// ───────────────────────────── Desk ─────────────────────────────
+// Desk page
 async function renderDesk(view) {
   const d = await api("/api/desk");
   setAsOf(d.generated);
@@ -335,11 +331,11 @@ async function renderDesk(view) {
 
   view.innerHTML = `
     <div class="page-head">
-      <div><h1>Desk</h1><p>Three paper books, each against SPY over its own live window. Numbers come from the logs the bots commit after every run.</p></div>
+      <div><h1>Desk</h1><p>Three paper books, each compared to SPY from its own first logged day. The numbers come from the logs the bots commit after each run.</p></div>
     </div>
     ${kpiStrip([
       { k: "Last runs", v: `${ran} of ${books.length}`, s: `ran on schedule · latest log ${dshort(lastLog)}` },
-      { k: "Beating SPY since inception", v: `${beating} of ${books.length}`, s: "same dates, price return" },
+      { k: "Beating SPY since inception", v: `${beating} of ${books.length}`, s: "same dates, SPY with dividends" },
       { k: "Research ledger", v: r ? `${r.total}` : "—", s: r ? `${r.PASS} pass · ${r.FAIL} fail · ${r["PRE-REGISTERED"]} open` : "experiments.md not found" },
       { k: "Alerts, last 30 days", v: `${d.alerts_30d}`, s: "from alerts.log" },
     ])}
@@ -372,7 +368,7 @@ function bookCard(b) {
       <div><div class="k">Max DD</div><div class="v">${pct(s.max_drawdown, 1)}</div></div>
       <div><div class="k">Sharpe</div><div class="v">${num(s.sharpe)}</div></div>
     </div>
-    <div class="foot-line"><span>${s.obs || 0} sessions since ${dshort(s.start)}</span><span class="go">Open book →</span></div>
+    <div class="foot-line"><span>${s.obs || 0} sessions since ${dshort(s.start)}</span><span class="go">Open book</span></div>
   </article>`;
 }
 
@@ -385,10 +381,10 @@ function perfChart(host, legend, books, win) {
   if (back) { const t = new Date(last); t.setDate(t.getDate() - back); start = t.toISOString().slice(0, 10); }
   const dates = allDates.filter((d) => d >= start);
   const maps = books.map((b) => new Map(b.series.map((p) => [p.d, p])));
-  // SPY: take it from whichever book has a SPY print on each date.
+  // Take SPY from whichever book has a SPY price on each date.
   const spyAt = (d) => { for (const m of maps) { const p = m.get(d); if (p && isNum(p.spy)) return p.spy; } return null; };
-  // Forward-fill at most 5 calendar days: a longer hole is a logging gap, and
-  // the line should break there instead of drawing a flat month that never happened.
+  // Forward-fill at most 5 calendar days. A longer hole is a logging gap, so the line
+  // breaks there instead of drawing a flat month that never happened.
   const ffill = (arr) => {
     let lv = null, ld = null;
     return arr.map((v, i) => {
@@ -446,7 +442,7 @@ function metaCard(meta) {
   });
 }
 
-// ───────────────────────────── Book detail ─────────────────────────────
+// Book page
 async function renderBook(view, id) {
   const b = await api(`/api/book/${id}`);
   setAsOf(null);
@@ -457,7 +453,7 @@ async function renderBook(view, id) {
     { k: "Equity", v: money(s.equity), s: `from ${money(s.start_equity)} · ${dshort(s.start)}` },
     { k: "Last session", v: `<span class="${cls(s.day_pnl)}">${money(s.day_pnl, { signed: true, cents: true })}</span>`, s: pct(s.day_pct, 2) },
     { k: "Return", v: pct(s.total_return), cls: cls(s.total_return), s: `SPY ${pct(s.spy_return)} same window` },
-    { k: "vs SPY", v: pct(s.vs_spy), cls: cls(s.vs_spy), s: "price return" },
+    { k: "vs SPY", v: pct(s.vs_spy), cls: cls(s.vs_spy), s: "SPY with dividends" },
     { k: "Drawdown", v: pct(s.drawdown, 1), s: `max ${pct(s.max_drawdown, 1)}` },
     { k: "Sharpe (live)", v: num(s.sharpe), s: `${s.obs} obs · vol ${pct(s.vol, 1, false)}` },
   ];
@@ -469,7 +465,7 @@ async function renderBook(view, id) {
         <p>${esc(b.desc)}</p></div>
       ${bookTabs}
     </div>
-    ${s.obs && s.obs < 126 ? `<div class="callout" style="margin-bottom:16px"><span class="bar"></span><div><b>${s.obs} sessions is a short sample.</b> A live Sharpe over fewer than ~6 months has a confidence interval wider than the number itself.${b.verdict ? " The graded verdict is the backtest evidence at the bottom of this page." : ""}</div></div>` : ""}
+    ${s.obs && s.obs < 126 ? `<div class="callout" style="margin-bottom:16px"><span class="bar"></span><div><b>${s.obs} sessions is a short sample.</b> A live Sharpe from under about 6 months of data isn't reliable.${b.verdict ? " The backtest results are at the bottom of this page." : ""}</div></div>` : ""}
     ${kpiStrip(kpis)}
     <div class="stack mt">
       ${card("Equity vs SPY", `<div class="card-body"><div class="legend">
@@ -540,11 +536,11 @@ function equitySections(det, id) {
             <span class="legend" style="font-size:12px"><span><i class="swatch rg-RISK_ON"></i>Risk-on</span><span><i class="swatch rg-CHOPPY"></i>Choppy</span><span><i class="swatch rg-RISK_OFF"></i>Risk-off</span></span></div>
             <div class="regime-strip" id="regime"></div>` : ""}</div>`,
         { sub: esc(ov.label), right: `<span class="tnum" style="font-weight:600">${isNum(lastOv) ? (id === "champion" ? pct(lastOv, 0, false) : num(lastOv, 2)) : "—"}</span>`,
-          foot: esc(ov.target_note) + (rg?.signals ? ` Latest vote ${dshort(rg.signals.at)}: vol ${esc(rg.signals.vol)}, trend ${esc(rg.signals.trend)}, flight ${esc(rg.signals.flight)} → <b>${esc(rg.current)}</b>, strategy ${esc(rg.strategy)}.` : "") })}
+          foot: esc(ov.target_note) + (rg?.signals ? ` Latest vote ${dshort(rg.signals.at)}: vol ${esc(rg.signals.vol)}, trend ${esc(rg.signals.trend)}, flight ${esc(rg.signals.flight)}. Result <b>${esc(rg.current)}</b>, strategy ${esc(rg.strategy)}.` : "") })}
       ${card("Turnover", `<div class="card-body"><div class="chart" id="turn"></div></div>`,
         { sub: "One-way: ½ × Σ|Δweight| between logged sessions",
           right: avgT != null ? `<span class="tnum" style="font-weight:600">${(avgT * 252).toFixed(0)}× / yr</span>` : "",
-          foot: avgT != null ? `Average ${pct(avgT, 1, false)} per session over ${turn.length} sessions, annualised at 252 days. Every unit of turnover pays the spread.` : "" })}
+          foot: avgT != null ? `Average ${pct(avgT, 1, false)} per session over ${turn.length} sessions, annualized at 252 days. More turnover means paying the spread more often.` : "" })}
     </div>
     ${card("Rebalances", rebalanceTable(det.rebalances), { sub: `${det.rebalances.length} sessions with orders, newest first` })}`;
 }
@@ -593,7 +589,7 @@ function volbotSections(det) {
   if (det.error) return errorBox(det.error);
   const ts = det.trade_stats, st = det.state;
   const trades = det.trades.map((t) => `<tr>
-      <td class="tnum" style="white-space:nowrap">${dshort(t.entry)} → ${dshort(t.exit)}</td>
+      <td class="tnum" style="white-space:nowrap">${dshort(t.entry)} to ${dshort(t.exit)}</td>
       <td><span class="mono">${esc(t.u)}</span> <span class="muted">exp ${dshort(t.exp)}</span></td>
       <td class="r tnum">${t.qty}</td>
       <td class="tnum hide-sm muted">${esc(t.strikes)}</td>
@@ -605,7 +601,7 @@ function volbotSections(det) {
   return `
     <div class="callout warn"><span class="bar"></span><div><b>Entries halted.</b> ${esc(det.note)}. Open rungs: ${st.open_rungs}. Last entries: ${Object.entries(st.last_entry || {}).map(([u, d]) => `${esc(u)} ${dshort(d)}`).join(", ") || "none"}.</div></div>
     ${card("Closed trades", `<div class="tbl-wrap"><table><thead><tr><th>Held</th><th>Underlying</th><th class="r">Qty</th><th class="hide-sm">Put / call spreads</th><th class="r">Credit</th><th class="r">Exit</th><th class="r">P&amp;L</th><th>Reason</th></tr></thead><tbody>${trades || `<tr><td colspan="8" class="empty">No closed trades</td></tr>`}</tbody></table></div>`,
-      { sub: `${ts.n} condors closed · ${ts.wins} winners`, right: `<span class="tnum ${cls(ts.realized)}" style="font-weight:600">${money(ts.realized, { signed: true, cents: true })} realised</span>` })}
+      { sub: `${ts.n} condors closed · ${ts.wins} winners`, right: `<span class="tnum ${cls(ts.realized)}" style="font-weight:600">${money(ts.realized, { signed: true, cents: true })} realized</span>` })}
     <div class="grid g-1-1">
       ${card("Implied vol by underlying", `<div class="card-body"><div class="legend"><span>${sw("var(--s1)")}SPY</span><span>${sw("var(--s2)")}QQQ</span><span>${sw("var(--s3)")}IWM</span></div><div class="chart mt" id="iv"></div></div>`,
         { sub: "Index vol (VIX / VXN / RVX) logged each session",
@@ -644,7 +640,7 @@ function verdictCard(v) {
   { sub: `Backtest, not live. Graded by the verdict engine, ${esc(v.generated || "")}` });
 }
 
-// ───────────────────────────── Research ─────────────────────────────
+// Research page
 const STATUSES = ["PASS", "FAIL", "INCONCLUSIVE", "MEASURED", "PRE-REGISTERED"];
 async function renderResearch(view) {
   const d = await api("/api/research");
@@ -661,15 +657,15 @@ async function renderResearch(view) {
 
   view.innerHTML = `
     <div class="page-head"><div><h1>Research</h1>
-      <p>Pre-registered experiments: the bar is written before the data is touched, and kills are logged as carefully as wins.</p></div></div>
+      <p>Each experiment's pass/fail bar is written down before the test runs. Failed ideas stay in the log with the ones that passed.</p></div></div>
     <div class="callout" style="margin-bottom:16px"><span class="bar"></span><div>
-      <b>${count("FAIL")} of ${ex.length} entries failed, ${count("PASS")} passed.</b> In ${premise} of the failures the premise held and the trade still lost: the signal was real, and execution or cost killed it.</div></div>
+      <b>${count("FAIL")} of ${ex.length} entries failed, ${count("PASS")} passed.</b> In ${premise} of the failures an early gate passed and the full test still failed.</div></div>
     <div class="toolbar">
       ${seg("st", [{ v: "ALL", label: "All", count: ex.length }].concat(STATUSES.map((s) => ({ v: s, label: s === "PRE-REGISTERED" ? "Pre-registered" : s[0] + s.slice(1).toLowerCase(), count: count(s) }))), "ALL")}
       <input class="search" type="search" placeholder="Search experiments" aria-label="Search experiments">
     </div>
     <section class="card" id="exlist"></section>
-    <p class="muted" style="font-size:12px;margin-top:10px">Parsed from <span class="mono">${esc(d.source.split("/").slice(-2).join("/"))}</span>, modified ${ago(d.modified)}. Status is read from each entry's Status line and result headers; a kill anywhere in an entry counts as FAIL.</p>`;
+    <p class="muted" style="font-size:12px;margin-top:10px">Parsed from <span class="mono">${esc(d.source.split("/").slice(-2).join("/"))}</span>, modified ${ago(d.modified)}. Status comes from each entry's Status line, result headers and verdict lines. A kill or fail in any of those counts as FAIL.</p>`;
 
   const list = $("#exlist", view);
   const draw = () => {
@@ -706,7 +702,7 @@ function expRow(e) {
   </dl></div></div>`;
 }
 
-// ───────────────────────────── Health ─────────────────────────────
+// Health page
 async function renderHealth(view) {
   const [h, d] = await Promise.all([api("/api/health"), api("/api/desk")]);
   setAsOf(d.generated);
@@ -738,7 +734,7 @@ async function renderHealth(view) {
     <div class="when" style="text-align:right">${dshort(a.at)} ${a.at.slice(11, 16)}</div></div>`).join("");
 
   view.innerHTML = `
-    <div class="page-head"><div><h1>Health</h1><p>Did every job run, is every log current, and what did the bots complain about.</p></div></div>
+    <div class="page-head"><div><h1>Health</h1><p>Whether each job ran, how current each log is, and recent alerts.</p></div></div>
     ${kpiStrip(tiles)}
     <div class="grid g-2-1 mt">
       ${card("Workflow runs", h.runs_error ? `<div class="empty">GitHub Actions unavailable: ${esc(h.runs_error)}</div>` :
@@ -752,7 +748,7 @@ async function renderHealth(view) {
     </div>`;
 }
 
-// ───────────────────────────── shell ─────────────────────────────
+// Routing and top bar buttons
 function setAsOf(iso) {
   const el = $("#asof");
   if (iso) el.textContent = `Updated ${new Date(iso).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })}`;
@@ -781,15 +777,7 @@ $("#refresh").addEventListener("click", async () => {
   const b = $("#refresh");
   b.classList.add("spin");
   cache.clear();
-  await $("#theme").addEventListener("click", () => {
-  const root = document.documentElement;
-  const cur = root.dataset.theme || (matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light");
-  const next = cur === "dark" ? "light" : "dark";
-  root.dataset.theme = next;
-  try { localStorage.setItem("desk-theme", next); } catch (e) {}
-  route();  // charts read CSS vars at draw time only via var(), but redraw keeps hover state clean
-});
-route();
+  await route();
   b.classList.remove("spin");
 });
 $("#theme").addEventListener("click", () => {
@@ -798,6 +786,6 @@ $("#theme").addEventListener("click", () => {
   const next = cur === "dark" ? "light" : "dark";
   root.dataset.theme = next;
   try { localStorage.setItem("desk-theme", next); } catch (e) {}
-  route();  // charts read CSS vars at draw time only via var(), but redraw keeps hover state clean
+  route();  // charts get their colors through var() anyway, but a redraw clears hover state
 });
 route();

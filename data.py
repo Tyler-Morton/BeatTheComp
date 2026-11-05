@@ -1,9 +1,5 @@
-"""Where all our price data comes from.
-
-Alpaca is our first choice (free, fast, no rate limits). If that ever hiccups we
-fall back to yfinance, and if even that's blocked we read from a saved-on-disk copy
-of the last good prices. Three layers deep so a bad day at one data source doesn't
-take the whole bot down.
+"""Price data. Alpaca first, then yfinance, then a saved copy of the last good prices, so a bad
+day at one source doesn't take the whole bot down.
 """
 
 import logging
@@ -18,13 +14,12 @@ import yfinance as yf
 
 logger = logging.getLogger(__name__)
 
-# A copy of the latest prices saved to disk. It sticks around between runs so the
-# dashboard can read prices without having to hit yfinance itself.
+# Latest prices saved to disk. They stay between runs so the dashboard can read prices
+# without hitting yfinance itself.
 PRICE_CACHE = Path(__file__).parent / "prices_cache.parquet"
 
-# We pretend to be a normal web browser here. yfinance throttles anything that
-# looks like a bot, and without this header it starts returning "Too Many
-# Requests" within seconds.
+# Browser-like headers. yfinance throttles anything that looks like a bot, and without these
+# it starts returning "Too Many Requests" within seconds.
 _yf_session = requests.Session()
 _yf_session.headers.update({
     "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 "
@@ -35,7 +30,6 @@ _yf_session.headers.update({
 
 
 def save_price_cache(prices: pd.DataFrame) -> None:
-    """Save the latest prices to disk so the dashboard can reuse them later."""
     try:
         prices.to_parquet(PRICE_CACHE)
         logger.info("Saved %d days × %d tickers to %s",
@@ -45,7 +39,7 @@ def save_price_cache(prices: pd.DataFrame) -> None:
 
 
 def load_price_cache(max_age_hours: float = 6.0) -> pd.DataFrame | None:
-    """Read the saved prices back — but only if they're still recent enough to trust."""
+    """Read the saved prices back, but only if they're recent enough to trust."""
     if not PRICE_CACHE.exists():
         return None
     age_hours = (time.time() - PRICE_CACHE.stat().st_mtime) / 3600
@@ -60,10 +54,9 @@ def load_price_cache(max_age_hours: float = 6.0) -> pd.DataFrame | None:
 
 
 def _alpaca_download(tickers: list[str], start: str, end: str) -> pd.DataFrame:
-    """Grab daily closing prices from Alpaca's IEX feed — our go-to source.
+    """Daily closes from Alpaca's IEX feed, our main source.
 
-    It's free with a paper account, has no rate limits, and pulls every ticker in
-    one batch, so it's both the fastest and the most reliable option we've got.
+    Every ticker comes in one batch, where yfinance goes one at a time.
     """
     import os
     from alpaca.data.historical import StockHistoricalDataClient
@@ -80,26 +73,25 @@ def _alpaca_download(tickers: list[str], start: str, end: str) -> pd.DataFrame:
         symbol_or_symbols=list(tickers),
         timeframe=TimeFrame.Day,
         start=datetime.strptime(start, "%Y-%m-%d"),
-        end=datetime.strptime(end, "%Y-%m-%d") - timedelta(minutes=20),  # the IEX feed is ~15min delayed, so back off 20 to be safe
+        end=datetime.strptime(end, "%Y-%m-%d") - timedelta(minutes=20),
         feed=DataFeed.IEX,
-        # Without this Alpaca returns RAW prices, so a split shows up as a crash:
-        # VGT's 8:1 split read as a -87.5% day and TQQQ's 2:1 as -50%, which
-        # poisoned every covariance and momentum number built on top.
+        # Without this Alpaca returns raw prices and a split looks like a crash. VGT's 8:1 split
+        # read as a -87.5% day and TQQQ's 2:1 as -50%, which poisoned every covariance and
+        # momentum number built on top.
         adjustment=Adjustment.ALL,
     )
     bars = client.get_stock_bars(req).df
     if bars.empty:
         raise RuntimeError("Alpaca returned empty bars")
 
-    # Alpaca hands everything back stacked together; reshape it so each ticker
-    # gets its own column of closing prices.
+    # Alpaca returns everything stacked. Reshape it to one column of closes per ticker.
     frames: dict[str, pd.Series] = {}
     for t in tickers:
         try:
             sub = bars.xs(t, level=0)["close"].sort_index()
             if sub.index.tz is not None:
                 sub.index = sub.index.tz_localize(None)
-            sub.index = pd.to_datetime(sub.index.date)   # date-only index
+            sub.index = pd.to_datetime(sub.index.date)
             frames[t] = sub
         except KeyError:
             logger.warning("No Alpaca data for %s — skipping", t)
@@ -110,8 +102,8 @@ def _alpaca_download(tickers: list[str], start: str, end: str) -> pd.DataFrame:
     return prices
 
 
-# Bigger than any real one-day move in the universe (TQQQ's worst day, Mar 2020,
-# was about -35%). A move past this is a split or a bad bar, not a market.
+# A one-day move past this is treated as a split or a bad bar. The Alpaca table gets refused and
+# the run falls back to yfinance. Real moves can pass it too: SOXL rose 54.8% on 2025-04-09.
 MAX_PLAUSIBLE_DAILY_MOVE = 0.45
 
 
@@ -128,10 +120,10 @@ def _check_for_split_artifacts(prices: pd.DataFrame, source: str) -> None:
 def _yfinance_download(
     tickers: list[str], start: str, end: str, retries: int = 3,
 ) -> pd.DataFrame:
-    """Backup price source — only used when Alpaca lets us down.
+    """Backup source, only used when Alpaca fails.
 
-    Goes ticker by ticker with retries and that browser-disguise session, since
-    yfinance is flaky and quick to throttle.
+    Goes ticker by ticker with retries and the browser-header session, since yfinance is flaky
+    and quick to throttle.
     """
     frames: list[pd.Series] = []
     for ticker in tickers:
@@ -156,7 +148,7 @@ def _yfinance_download(
 
 
 def _batch_download(tickers: list[str], start: str, end: str, retries: int = 3) -> pd.DataFrame:
-    """Try Alpaca first; if it throws for any reason, quietly switch to yfinance."""
+    """Try Alpaca first. If it raises for any reason, switch to yfinance."""
     try:
         logger.info("Fetching prices via Alpaca IEX (%d tickers)...", len(tickers))
         return _alpaca_download(tickers, start, end)
@@ -166,17 +158,16 @@ def _batch_download(tickers: list[str], start: str, end: str, retries: int = 3) 
 
 
 def fetch_prices(tickers: list[str], lookback_days: int = 252) -> pd.DataFrame:
-    """The main way the bot asks for prices.
+    """Adjusted closes. This is the main way the bot asks for prices.
 
-    Returns adjusted closes. If both live sources are down, it falls back to the
-    saved-on-disk copy so a run can still limp along on slightly stale data.
+    If both live sources are down, falls back to the saved copy so a run can still go on
+    slightly stale data.
     """
     end = datetime.today()
     start = end - timedelta(days=lookback_days + 90)
     try:
         return fetch_prices_range(tickers, start, end, tail=lookback_days)
     except RuntimeError as exc:
-        # Both live sources struck out — fall back to the saved prices on disk.
         logger.warning("yfinance fetch failed: %s — trying disk cache", exc)
         cached = load_price_cache(max_age_hours=48)
         if cached is None:
@@ -195,7 +186,7 @@ def fetch_prices_range(
     end: datetime,
     tail: int | None = None,
 ) -> pd.DataFrame:
-    """Same idea as fetch_prices, but for an exact start/end window (handy for backtests)."""
+    """Like fetch_prices, but for an exact start/end window (handy for backtests)."""
     prices = _batch_download(
         tickers,
         start=start.strftime("%Y-%m-%d"),
@@ -207,5 +198,5 @@ def fetch_prices_range(
 
 
 def get_returns(prices: pd.DataFrame) -> pd.DataFrame:
-    """Turn a table of prices into day-over-day percentage changes (dropping empty rows)."""
+    """Day-over-day percent changes, dropping any row with a NaN."""
     return prices.pct_change().dropna()

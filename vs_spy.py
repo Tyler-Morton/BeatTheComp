@@ -1,11 +1,8 @@
-"""vs_spy.py — the live scoreboard: every book vs SPY since its own launch.
+"""Live scoreboard: each book vs SPY, plus all three vs the same dollars in SPY.
 
-Pulls each account's REAL equity curve from Alpaca (portfolio-history API, so it
-doesn't depend on our CSV logs), grabs SPY from Tiingo over the same windows, and
-prints each book's return vs SPY-over-the-identical-period, plus the combined
-"household" view (all three books together vs parking the same dollars in SPY).
-
-Run: python3 vs_spy.py          (saves vs_spy.png alongside the table)
+Equity comes from Alpaca's portfolio history, so it doesn't depend on our CSV logs. It asks for the
+last 4 months, so an older book's window starts there instead of at its launch.
+Run: python3 vs_spy.py (also saves vs_spy.png)
 """
 import os
 import warnings
@@ -24,7 +21,7 @@ import matplotlib.pyplot as plt
 
 load_dotenv()
 
-# book -> (env prefix, inception date = first day capital was live)
+# book: (env prefix, first day capital was live)
 BOOKS = {
     "Champion":   ("ALPACA",            "2026-05-22"),
     "Challenger": ("CHALLENGER_ALPACA", "2026-06-10"),
@@ -67,7 +64,7 @@ def main() -> None:
         eq = alpaca_equity(prefix)
         eq = eq[eq.index >= inception]
         if eq.empty:
-            print(f"{name}: no equity history returned — skipped")
+            print(f"{name}: no equity history returned, skipped")
             continue
         start, now = eq.iloc[0], eq.iloc[-1]
 
@@ -97,7 +94,7 @@ def main() -> None:
     print("\n(SPY column = SPY's return over that book's exact window. "
           "COMBINED = all books vs the same dollars parked in SPY.)")
 
-    # chart: each book's cumulative % since its own launch, SPY from earliest
+    # Each book's cumulative % over its window, with SPY from the earliest window start.
     fig, ax = plt.subplots(figsize=(10, 5))
     colors = {"Champion": "#C44E52", "Challenger": "#4C72B0", "VolBot": "#55A868"}
     for name, curve in curves.items():
@@ -106,16 +103,16 @@ def main() -> None:
     earliest = min(c.index[0] for c in curves.values())
     spy_win = spy[spy.index >= earliest]
     ax.plot(spy_win.index, (spy_win / spy_win.iloc[0] - 1) * 100,
-            label="SPY (from May 22)", color="#888888", ls="--", lw=1.4)
+            label=f"SPY (from {earliest.date()})", color="#888888", ls="--", lw=1.4)
     ax.axhline(0, color="black", lw=0.8)
-    ax.set_title("Live books vs SPY — cumulative % since each launch",
+    ax.set_title("Books vs SPY: cumulative % over the last 4 months",
                  fontweight="bold")
-    ax.set_ylabel("Return since launch (%)")
+    ax.set_ylabel("Return (%)")
     ax.legend()
     ax.grid(True, alpha=0.3)
     fig.tight_layout()
     fig.savefig("vs_spy.png", dpi=130)
-    print("Chart saved -> vs_spy.png")
+    print("Chart saved to vs_spy.png")
 
 
 if __name__ == "__main__":

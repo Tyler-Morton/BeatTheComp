@@ -49,7 +49,7 @@ def test_clip_and_renorm_obeys_bounds():
     assert out["A"] <= 0.5 + 1e-9 and out["B"] >= 0.2 - 1e-9
 
 
-# ── select_strategy override bar (the 0.5 floor from 1e94b61) ─────────────────
+# select_strategy override bar, with the 0.5 floor
 
 def _select_with_scores(monkeypatch, asset_returns, regime, scores):
     monkeypatch.setattr(opt, "_score_strategy_recent",
@@ -58,8 +58,8 @@ def _select_with_scores(monkeypatch, asset_returns, regime, scores):
 
 
 def test_override_bar_negative_baseline_needs_absolute_gap(monkeypatch, asset_returns):
-    # CHOPPY baseline = HRP, margin 0.15. Baseline -1.0 -> gap needed 0.15.
-    # A rival at -0.9 (gap 0.10) must NOT override (the old multiplicative bar let it).
+    # CHOPPY baseline is HRP with margin 0.15, so a baseline of -1.0 needs a gap of 0.15.
+    # A rival at -0.9 (gap 0.10) must not override. The old multiplicative bar let it.
     s = {"HRP": -1.0, "MAX_SHARPE": -0.9, "HRP_MOMENTUM": -2.0}
     assert _select_with_scores(monkeypatch, asset_returns, "CHOPPY", s) == "HRP"
     s["MAX_SHARPE"] = -0.80                      # gap 0.20 > 0.15
@@ -67,7 +67,7 @@ def test_override_bar_negative_baseline_needs_absolute_gap(monkeypatch, asset_re
 
 
 def test_override_bar_floor_for_near_zero_baseline(monkeypatch, asset_returns):
-    # Baseline ~0 -> |baseline| floored at 0.5 -> required gap 0.15 * 0.5 = 0.075.
+    # With a baseline near 0, |baseline| is floored at 0.5, so the required gap is 0.15 * 0.5 = 0.075.
     s = {"HRP": 0.01, "MAX_SHARPE": 0.08, "HRP_MOMENTUM": 0.0}   # gap 0.07 < 0.075
     assert _select_with_scores(monkeypatch, asset_returns, "CHOPPY", s) == "HRP"
     s["MAX_SHARPE"] = 0.09                                         # gap 0.08 > 0.075
@@ -75,7 +75,7 @@ def test_override_bar_floor_for_near_zero_baseline(monkeypatch, asset_returns):
 
 
 def test_override_bar_risk_on_margin(monkeypatch, asset_returns):
-    # RISK_ON margin 1.0: baseline 1.0 -> rival needs > 2.0.
+    # RISK_ON margin is 1.0, so with a baseline of 1.0 a rival needs over 2.0.
     s = {"HRP_MOMENTUM": 1.0, "HRP": 1.9, "MAX_SHARPE": 0.0}
     assert _select_with_scores(monkeypatch, asset_returns, "RISK_ON", s) == "HRP_MOMENTUM"
     s["HRP"] = 2.1

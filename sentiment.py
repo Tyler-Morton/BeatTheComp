@@ -1,9 +1,7 @@
-"""Reading the news mood for each stock, using Claude with web search.
+"""News sentiment for each stock, using Claude with web search. Off right now (SENTIMENT_ENABLED).
 
-For every ticker we ask Claude to skim the last day of headlines and score how
-bullish or bearish things feel. We send them all in one batch request, which is
-half the price of doing them one at a time. If the batch ever fails, we quietly
-fall back to plain one-at-a-time calls so we still get an answer.
+Claude reads the last day of headlines for each ticker and scores how bullish or bearish they are.
+All tickers go in one batch, half the price of separate calls. If it fails, we call one at a time.
 """
 
 import csv
@@ -23,8 +21,8 @@ logger = logging.getLogger(__name__)
 
 MODEL = "claude-haiku-4-5-20251001"
 MAX_TOKENS = 600
-BATCH_TIMEOUT_SEC = 600   # give the batch up to 10 minutes before we give up on it
-POLL_INTERVAL_SEC = 8     # check whether it's finished every 8 seconds
+BATCH_TIMEOUT_SEC = 600
+POLL_INTERVAL_SEC = 8
 
 
 def _build_prompt(ticker: str) -> str:
@@ -43,12 +41,12 @@ def _build_prompt(ticker: str) -> str:
 
 
 def _parse_json(text: str) -> dict:
-    """Dig the JSON answer out of whatever Claude wrote back.
+    """Pull the JSON answer out of Claude's reply.
 
-    Models sometimes wrap the JSON in extra chatter, so we hunt for the actual
-    {...} block instead of assuming the whole reply is clean JSON.
+    Models sometimes wrap the JSON in extra text, so look for the {...} block first.
     """
-    # Grab the biggest {...} chunk we can find — this copes with nested arrays/objects.
+    # Find {...} chunks. The regex handles objects nested one level deep. Arrays are fine since they
+    # have no braces, and anything nested deeper won't match as a whole.
     matches = re.findall(r"\{[^{}]*(?:\{[^{}]*\}[^{}]*)*\}", text, re.DOTALL)
     for m in matches:
         try:
@@ -57,7 +55,7 @@ def _parse_json(text: str) -> dict:
                 return data
         except json.JSONDecodeError:
             continue
-    # Nothing matched cleanly — as a last-ditch effort, try the whole reply as JSON.
+    # Nothing matched, so last try: the whole reply as JSON.
     try:
         return json.loads(text.strip())
     except Exception:
@@ -66,7 +64,6 @@ def _parse_json(text: str) -> dict:
 
 
 def _extract_text(content: list) -> str:
-    """Pull all text blocks from a message content list."""
     parts = []
     for block in content:
         if hasattr(block, "text"):
@@ -78,10 +75,8 @@ def _default_result() -> dict:
     return {"score": 0.0, "confidence": 0.0, "summary": "unavailable", "key_headlines": []}
 
 
-# ── The fast path: one batch for everything ──────────────────────────────────
-
 def _run_batch(client: anthropic.Anthropic, tickers: list[str]) -> dict[str, dict]:
-    """Send every ticker off in a single batch, then wait around for the results."""
+    """Send every ticker in a single batch, then wait for the results."""
     requests = [
         {
             "custom_id": ticker,
@@ -119,10 +114,8 @@ def _run_batch(client: anthropic.Anthropic, tickers: list[str]) -> dict[str, dic
     return results
 
 
-# ── The slow path: one call at a time (only if the batch breaks) ─────────────
-
 def _run_sync(client: anthropic.Anthropic, tickers: list[str]) -> dict[str, dict]:
-    """Plan B — ask about each ticker individually when the batch route falls over."""
+    """Fallback for when the batch fails: ask about each ticker separately."""
     results: dict[str, dict] = {}
     for ticker in tickers:
         try:
@@ -139,8 +132,6 @@ def _run_sync(client: anthropic.Anthropic, tickers: list[str]) -> dict[str, dict
             results[ticker] = _default_result()
     return results
 
-
-# ── Logging ────────────────────────────────────────────────────────────────────
 
 def _log_results(results: dict[str, dict]) -> None:
     path = Path(SENTIMENT_LOG)
@@ -161,19 +152,15 @@ def _log_results(results: dict[str, dict]) -> None:
             })
 
 
-# ── Public API ─────────────────────────────────────────────────────────────────
-
 def run_sentiment_analysis(tickers: list[str]) -> dict[str, dict]:
-    """The one function the rest of the bot calls.
+    """Returns {ticker: {score, confidence, summary, key_headlines}}.
 
-    Give it a list of tickers, get back {ticker: {score, confidence, summary,
-    key_headlines}}. Tries the batch first, the sync fallback second, and if both
-    blow up it just returns neutral scores so the pipeline can keep moving.
+    Tries the batch, then sync calls. If both fail it returns neutral scores so the run can keep
+    going.
     """
     if not SENTIMENT_ENABLED:
-        # Sentiment is turned off — return neutral for everything, no API calls.
-        # (Neutral scores have no effect on the optimizer, so the bot trades as
-        # if sentiment weren't there.)
+        # Sentiment is off: neutral scores for everything and no API calls. Neutral scores have
+        # no effect on the optimizer, so the bot trades as if sentiment weren't there.
         return {t: _default_result() for t in tickers}
 
     api_key = os.getenv("ANTHROPIC_API_KEY")

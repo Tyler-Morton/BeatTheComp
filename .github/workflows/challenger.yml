@@ -1,15 +1,15 @@
 name: Challenger Daily Rebalance
 
 on:
-  # PRIMARY: the SAME cron-job.org dispatch that fires the champion at
-  # 6:30 AM PT — one external trigger, both bots. (Also accepts a dedicated
-  # challenger_trigger if we ever want to fire it separately.)
+  # Primary: the same cron-job.org dispatch that fires the champion at 6:30 AM PT, so one
+  # external trigger runs both bots. challenger_trigger is there to fire this one separately.
   repository_dispatch:
     types: [market_open_trigger, challenger_trigger]
 
-  # FALLBACK: GitHub's own cron (can lag 15min-3hr). Offset ~10 min from the
-  # champion's entries so the two workflows' log commits don't race.
-  # Duplicate-run guard in challenger/main.py makes extra runs harmless.
+  # Fallback: GitHub's own cron, which can lag 15 min to 3 hours. Offset about 10 min from the
+  # champion's entries so the two workflows' log commits don't race. The duplicate-run guard
+  # in challenger/main.py stops a run once today's row is logged. There's no concurrency key,
+  # so two runs that overlap could both get past it.
   schedule:
     - cron: "42 13 * * 1-5"   # 6:42 AM PDT
     - cron: "10 14 * * 1-5"   # 7:10 AM PDT
@@ -46,19 +46,21 @@ jobs:
           TIINGO_API_KEY: ${{ secrets.TIINGO_API_KEY }}
         run: python challenger/main.py
 
-      - name: Commit challenger logs + price cache
+      - name: Commit challenger logs
         if: always()
         run: |
           git config user.name  "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          # Only challenger files — disjoint from the champion's commit set,
-          # so concurrent runs can always rebase cleanly past each other.
-          git add challenger/daily_log.csv challenger/live_prices.parquet 2>/dev/null || true
-          # separate add: a missing path would make the whole add above fail
+          # Only challenger files. They don't overlap the champion's commit set, so concurrent
+          # runs can always rebase cleanly past each other.
+          # live_prices.parquet is gitignored because Tiingo's plans don't allow sharing the data.
+          # Don't name it here: naming an ignored file makes `git add` fail (see rebalance.yml).
+          git add challenger/daily_log.csv
+          # Separate add with the failure hidden, in case this file doesn't exist yet.
           git add challenger/base_state.json 2>/dev/null || true
           git diff --cached --quiet && echo "Nothing to commit" && exit 0
           git commit -m "Challenger log $(date -u '+%Y-%m-%d %H:%M UTC')"
-          # Fail loudly if all pushes fail (the loop's status was sleep's: green).
+          # Fail loudly if all pushes fail. The loop's exit status is sleep's, so it would end green.
           pushed=0
           for i in 1 2 3; do
             if git pull --rebase origin main && git push; then pushed=1; break; fi

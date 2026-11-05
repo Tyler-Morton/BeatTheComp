@@ -1,14 +1,7 @@
-"""Trading desk — read-only web dashboard for the three PAPER books.
+"""Read-only web dashboard for the three paper books. See web/README.md for how to run it.
 
-Reads only what the bots already write (CSV logs, the price caches, git history,
-alerts.log, the local research ledger) and serves it as JSON to a static
-front end in web/static/. It never places orders, never imports a broker
-client, and never sends any .env value to the browser.
-
-Run:   python3 web/app.py          ->  http://localhost:5050
-Env:   PORT=5050                    port to bind (127.0.0.1 only)
-       DESK_RESEARCH_DIR=...        override where research/experiments.md lives
-       DESK_NO_GH=1                 skip the `gh run list` call on the Health page
+Serves the bots' logs, price caches, git history and the research ledger as JSON to web/static/.
+It never places orders, imports a broker client, or loads .env.
 """
 
 from __future__ import annotations
@@ -49,8 +42,10 @@ NYSE_HOLIDAYS = {
     "2027-01-01", "2027-01-18", "2027-02-15", "2027-03-26", "2027-05-31",
     "2027-06-18", "2027-07-05", "2027-09-06", "2027-11-25", "2027-12-24",
 }
-# Last scheduled cron for each book (UTC hour). Before this hour a missing
-# row for today is "scheduled", not "missed".
+# deadline_utc is the UTC hour after which today's row is expected. Before it, status checks the
+# previous trading day, so a missing row for today isn't "missed". 17 is after the last cron
+# (16:00 UTC for champion, 16:10 for challenger). VolBot has no schedule now, so it shows missed
+# unless someone runs it.
 BOOKS = {
     "champion": {
         "name": "Champion",
@@ -77,8 +72,6 @@ BOOKS = {
 
 app = Flask(__name__, static_folder=str(STATIC_DIR), static_url_path="/static")
 
-
-# ─────────────────────────────── helpers ────────────────────────────────────
 
 def _r(x, n=4):
     """Round, mapping NaN/inf to None so the JSON stays valid."""
@@ -151,10 +144,9 @@ _gh_cache: dict = {"t": 0.0, "runs": None, "err": None}
 
 
 def _gh_runs():
-    """Recent GitHub Actions runs via the local `gh` CLI, cached 2 minutes.
+    """Recent GitHub Actions runs from the local `gh` CLI, cached for 2 minutes.
 
-    Returns (runs, error). The token stays inside gh; nothing about it is
-    passed to the browser."""
+    Returns (runs, error). The token stays inside gh and never reaches the browser."""
     if os.getenv("DESK_NO_GH"):
         return None, "disabled (DESK_NO_GH)"
     if time.time() - _gh_cache["t"] < 120:
@@ -177,10 +169,14 @@ def _gh_runs():
     return runs, err
 
 
-# ─────────────────────────────── book series ────────────────────────────────
+# Book summaries
 
 def _equity_frame(book: str) -> pd.DataFrame:
-    """date + equity (one row per date, last write wins, bad rows dropped)."""
+    """One row per date with its equity, with bad rows dropped.
+
+    If a date repeats, keep="last" picks one, but _read_csv's sort isn't stable, so it may not be
+    the last one written. The logs have no repeated dates today.
+    """
     if book == "champion":
         df = _read_csv(CHAMP_LOG)
         if df.empty:
@@ -195,7 +191,8 @@ def _equity_frame(book: str) -> pd.DataFrame:
     if df.empty or "equity" not in df.columns:
         return pd.DataFrame()
     df["equity"] = pd.to_numeric(df["equity"], errors="coerce")
-    # A paper account is never worth $0; those rows are broker timeouts.
+    # A paper account is never worth $0. These rows come from a failed broker read:
+    # broker.get_portfolio_value returns 0.0 on any exception.
     df = df[df["equity"] > 0]
     return df.drop_duplicates(subset="date", keep="last").reset_index(drop=True)
 
@@ -239,7 +236,7 @@ def _stats(eq: pd.Series, dates: pd.Series, spy: pd.Series) -> dict:
 
 
 def _series(df: pd.DataFrame, spy: pd.Series) -> list[dict]:
-    """Equity + SPY close aligned on the book's own dates (SPY forward-filled)."""
+    """Equity and SPY close on the book's own dates, with SPY forward-filled."""
     out = []
     peak = 0.0
     for d, e in zip(df["date"], df["equity"]):
@@ -276,7 +273,7 @@ def _run_status(book: str, last: str | None, runs) -> dict:
     else:
         state, label = "missed", f"Missed {expected:%b} {expected.day}"
 
-    # A failed latest run overrides a quiet log (the log only shows success).
+    # A failed latest run overrides the log, since the log only shows successes.
     if latest and latest.get("conclusion") == "failure":
         state, label = "failed", "Last run failed"
 
@@ -299,8 +296,9 @@ def _book_summary(book: str, spy: pd.Series, runs) -> dict:
         base.update(stats={}, series=[], status=_run_status(book, None, runs))
         return base
     st = _stats(df["equity"], df["date"], spy)
-    # Stretches with no log rows (e.g. the Jun 24 - Jul 24 log-commit bug).
-    # Charts join across them, so name them rather than let a flat line lie.
+    # Stretches with no usable log rows, like the champion's Jun 23 to Jul 27 gap (22 sessions). The
+    # log-commit bug caused the part after Jul 7. Charts draw a straight line across them, so the
+    # page names them to show it isn't real data.
     d = df["date"].tolist()
     gaps = [{"from": a.strftime("%Y-%m-%d"), "to": b.strftime("%Y-%m-%d"),
              "missing": int(sum(1 for x in pd.bdate_range(a, b)[1:-1]
@@ -311,13 +309,13 @@ def _book_summary(book: str, spy: pd.Series, runs) -> dict:
     return base
 
 
-# ─────────────────────────────── positions ──────────────────────────────────
+# Book page detail
 
 def _weights_history(df: pd.DataFrame, col: str, top_n: int = 6):
-    """Weights over time collapsed to the top-N symbols + Other + Cash.
+    """Weights over time, collapsed to the top N symbols plus Other and Cash.
 
-    Ranking is by average weight over the whole history, so a symbol's
-    colour stays fixed whatever the selected window."""
+    Ranked by average weight over the whole history, so the symbol list and colors don't
+    change from day to day."""
     rows = [(d, _weights(w)) for d, w in zip(df["date"], df[col])]
     rows = [(d, w) for d, w in rows if w]
     if not rows:
@@ -455,8 +453,8 @@ def _volbot_detail(spy):
                 "reason": t["reason"], "slip": _r(t["entry_slip"], 2)})
     iv = [{"d": d.strftime("%Y-%m-%d"), "SPY": _r(a, 1), "QQQ": _r(b, 1), "IWM": _r(c, 1)}
           for d, a, b, c in zip(df["date"], df["spy_iv"], df["qqq_iv"], df["iwm_iv"])]
-    # at_risk is logged in dollars (sum of max loss over open rungs); show it
-    # as a fraction of equity so it reads against the 25% cap.
+    # at_risk is logged in dollars (sum of max loss over open rungs). Show it as a
+    # fraction of equity so it reads against the 25% cap.
     at_risk = [{"d": d.strftime("%Y-%m-%d"),
                 "v": _r((float(v) if pd.notna(v) else 0.0) / float(e)),
                 "usd": _r(v, 0), "rungs": int(r) if pd.notna(r) else 0}
@@ -506,7 +504,7 @@ def _verdict(key):
         return None
 
 
-# ─────────────────────────────── research ledger ────────────────────────────
+# Research ledger
 
 def _research_path() -> Path | None:
     cands = []
@@ -540,8 +538,8 @@ INC_RE = re.compile(r"\b(INCONCLUSIVE|UNDERPOWERED|PILOT ONLY|pending)\b", re.I)
 
 
 def _classify(text: str) -> str:
-    """Status from the decisive verdict text. A kill anywhere is a FAIL even if
-    a premise gate passed first — a confirmed premise is not a working trade."""
+    """Status from the decisive verdict text. A kill anywhere is a FAIL even if a
+    premise gate passed first, because a confirmed premise can still lose money."""
     t = text
     if FAIL_RE.search(t):
         return "FAIL"
@@ -563,7 +561,7 @@ def _parse_experiments(md: str) -> list[dict]:
         eid, title = m.group(1), _clean_md(m.group(2))
         lines = body.splitlines()
 
-        # Status paragraph: from **Status:** to the next blank line / bold field.
+        # Status paragraph: from **Status:** to the next blank line or bold field.
         status = ""
         for i, ln in enumerate(lines):
             if ln.startswith("**Status:**"):
@@ -615,8 +613,8 @@ def _parse_experiments(md: str) -> list[dict]:
                         break
         if not key:
             key = status
-        # A bare "Data:/Full record:" paragraph is provenance, not a finding;
-        # the result header line says more.
+        # A bare "Data:" or "Full record:" paragraph only says where the numbers came
+        # from. The result header line says more, so use that.
         if re.match(r"(Data|Full record|Ran exactly|Result files)\b", key) and has_result:
             hdr = [ln for ln in lines if result_hdr.match(ln)][-1]
             key = _clean_md(re.sub(r"^###\s+", "", hdr))
@@ -643,7 +641,7 @@ def _parse_experiments(md: str) -> list[dict]:
     return sorted(out, key=sort_key)
 
 
-# ─────────────────────────────── health ─────────────────────────────────────
+# Health page
 
 def _alerts_path() -> Path | None:
     for p in [BASE_DIR / "alerts.log"]:
@@ -710,8 +708,6 @@ def _freshness():
     return out
 
 
-# ─────────────────────────────── routes ─────────────────────────────────────
-
 @app.route("/")
 def index():
     return send_from_directory(STATIC_DIR, "index.html")
@@ -767,7 +763,7 @@ def api_book(book):
     try:
         detail = {"champion": _champion_detail, "challenger": _challenger_detail,
                   "volbot": _volbot_detail}[book](spy)
-    except Exception as e:  # a malformed log should degrade, not 500 the page
+    except Exception as e:  # a malformed log shows as an error on the page instead of a 500
         detail = {"error": f"{type(e).__name__}: {e}"}
     summary.update(detail=detail, verdict=_verdict(BOOKS[book]["verdict_key"]))
     return jsonify(summary)
@@ -804,4 +800,5 @@ def api_health():
 if __name__ == "__main__":
     port = int(os.getenv("PORT", "5050"))
     print(f"\n  Trading desk (read-only, paper) -> http://localhost:{port}\n")
-    app.run(host="127.0.0.1", port=port, debug=False)
+    # Flask loads .env by default, and that would put the broker keys in this process.
+    app.run(host="127.0.0.1", port=port, debug=False, load_dotenv=False)

@@ -1,8 +1,7 @@
-"""V3 paper shadow (shadow_v3.py): read-only, monthly re-decision, 30% 3x cap.
+"""Tests for shadow_v3.py: read-only, monthly re-decision, 30% cap on 3x ETFs. All offline.
 
-All offline. The two guarantees Tyler asked for are tested directly:
-  * the shadow never touches the broker (no order calls, no attribute access at all);
-  * the champion's targets are byte-identical with and without the shadow imported/run.
+The main checks are that the shadow never touches the broker (no order calls, no attribute
+access at all), and that the champion's targets are byte-identical with or without the shadow.
 """
 import ast
 import csv
@@ -39,7 +38,7 @@ def _prices(end="2026-10-30", n=300, seed=3) -> pd.DataFrame:
 
 @pytest.fixture
 def heavy_3x_decision(monkeypatch):
-    """Pin the monthly decision to a 3x-heavy book so the cap has to bind."""
+    """Pins the monthly decision to a 3x-heavy book so the cap has to bind."""
     calls = []
     B = {"TQQQ": 0.35, "TECL": 0.35, "VGT": 0.20, "SHV": 0.10}
 
@@ -59,7 +58,7 @@ def _write_daily_log(path: Path, days, value=1000.0):
 
 
 def _run_sessions(tmp_path, prices, sessions, **kw):
-    """Drive shadow_v3.run() through `sessions`, feeding the cache the closes through D−1."""
+    """Runs shadow_v3.run() through `sessions`, giving the cache the closes through D-1."""
     out = []
     daily = tmp_path / "daily_log.csv"
     _write_daily_log(daily, sessions)
@@ -77,7 +76,7 @@ def _rows(tmp_path):
         return list(csv.DictReader(f))
 
 
-# ── V3 rules ──────────────────────────────────────────────────────────────────
+# V3 rules
 
 def test_cap_binds_and_excess_goes_to_shv(asset_returns):
     B = {"TQQQ": 0.30, "UPRO": 0.20, "TECL": 0.20, "VGT": 0.25, "SHV": 0.05}
@@ -106,7 +105,7 @@ def test_crumbs_fold_into_shv_after_cap(asset_returns):
 
 def test_redecides_only_on_first_session_of_month(tmp_path, heavy_3x_decision):
     prices = _prices(end="2026-11-06")
-    sessions = [d.date() for d in prices.index[-12:]]         # spans Oct → Nov
+    sessions = [d.date() for d in prices.index[-12:]]         # spans Oct to Nov
     statuses = _run_sessions(tmp_path, prices, sessions)
     assert statuses == ["logged"] * len(sessions)
     rows = _rows(tmp_path)
@@ -114,7 +113,7 @@ def test_redecides_only_on_first_session_of_month(tmp_path, heavy_3x_decision):
     first_nov = next(str(d) for d in sessions if d.month == 11)
     assert redecided == [str(sessions[0]), first_nov]
     assert len(heavy_3x_decision) == 2
-    # every decision used closes through the PRIOR session only
+    # every decision used closes through the prior session only
     for (d, used) in zip([sessions[0], date.fromisoformat(first_nov)], heavy_3x_decision):
         assert used.date() < d
     # scaler, cap and gates still ran every day
@@ -131,7 +130,7 @@ def test_regime_matches_live_detect_regime(monkeypatch):
         assert shadow_v3.regime_from_prices(p) == regime.detect_regime(p["SPY"], p["TLT"])
 
 
-# ── Accounting ────────────────────────────────────────────────────────────────
+# Accounting
 
 def test_first_day_starts_at_champion_equity_in_shv_and_trades_in(tmp_path, heavy_3x_decision):
     prices = _prices()
@@ -152,7 +151,7 @@ def test_equity_marks_held_book_and_books_5bp_cost(tmp_path, heavy_3x_decision):
     s0, r0 = shadow_v3.step(None, prices.iloc[:-2], d0, 1000.0)
     held, cost = dict(s0["held"]), s0["pending_cost"]
     s1, r1 = shadow_v3.step(s0, prices.iloc[:-1], d1, 1000.0)
-    r = prices.iloc[-2] / prices.iloc[-3] - 1                  # close(d0−1) → close(d0)
+    r = prices.iloc[-2] / prices.iloc[-3] - 1                  # close(d0-1) to close(d0)
     g = sum(w * r[k] for k, w in held.items())
     assert s1["equity"] == pytest.approx(1000.0 * (1 + g - cost), rel=1e-12)
     assert r1["marked_through"] == str(prices.index[-2].date())
@@ -167,7 +166,7 @@ def test_risk_gate_blocks_on_shadow_drawdown(asset_returns):
                                                   100.0, 100.0)
 
 
-# ── Run-level behaviour ───────────────────────────────────────────────────────
+# Run-level behavior
 
 def test_idempotent_and_atomic(tmp_path, heavy_3x_decision):
     prices = _prices()
@@ -204,10 +203,10 @@ def test_ignores_any_price_row_dated_today(tmp_path, heavy_3x_decision):
     assert heavy_3x_decision[0].date() < d
 
 
-# ── Read-only guarantees ──────────────────────────────────────────────────────
+# Read-only guarantees
 
 class _BrokerTripwire(types.ModuleType):
-    """A stand-in `broker` module that records ANY attribute access."""
+    """A stand-in `broker` module that records any attribute access."""
     def __init__(self):
         super().__init__("broker")
         object.__setattr__(self, "touched", [])
@@ -236,7 +235,7 @@ def test_never_calls_the_broker(tmp_path, monkeypatch):
         pass
     prices = _prices(end="2026-11-06")
     sessions = [d.date() for d in prices.index[-10:]]
-    # the real decision path (regime → select_strategy → optimize), not a stub
+    # the real regime, select_strategy and optimize path, with no stub
     assert _run_sessions(tmp_path, prices, sessions) == ["logged"] * len(sessions)
     assert trip.touched == []
     assert order_calls == []
@@ -271,8 +270,8 @@ def test_writes_nothing_outside_its_own_files(tmp_path, heavy_3x_decision):
 
 
 def test_champion_targets_identical_with_and_without_shadow():
-    """main.main() in a fresh interpreter, with and without shadow_v3 imported and run first.
-    The targets handed to broker.rebalance must match byte for byte."""
+    """Runs main.main() in a fresh interpreter, with and without shadow_v3 imported and run
+    first. The targets handed to broker.rebalance must match byte for byte."""
     harness = ROOT / "tests" / "champion_harness.py"
     outs = []
     for args in ([], ["--with-shadow"]):

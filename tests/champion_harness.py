@@ -1,12 +1,12 @@
-"""Run the champion's main.main() fully offline and print the targets it hands the broker.
+"""Runs the champion's main.main() offline and prints the targets it hands the broker.
 
-Used by test_shadow_v3.py in a fresh interpreter, twice: once plain and once with
-`--with-shadow`, which imports shadow_v3 and runs a shadow session on the same prices
-before the champion runs. The two stdouts must be byte-identical.
-
-Everything external is faked: prices are synthetic, the broker is an in-memory stub,
-and every file the champion would write is redirected to a temp dir.
+test_shadow_v3.py runs this twice in fresh interpreters: once plain and once with --with-shadow,
+which runs a shadow session on the same prices first. The two outputs must be byte-identical.
 """
+
+# Everything external is faked. Prices come from a local file, the broker is an in-memory stub,
+# and the files the champion would write are stubbed out or redirected to a temp dir.
+
 import json
 import sys
 import tempfile
@@ -42,8 +42,8 @@ def synthetic_prices(end: str = "2026-10-12", n: int = 260, seed: int = 7) -> pd
 
 def main(with_shadow: bool) -> None:
     tmp = Path(tempfile.mkdtemp(prefix="champ_harness_"))
-    # The champion's real committed price table if present (offline, and it puts 3x ETFs
-    # in the book), otherwise a synthetic one.
+    # Use the real committed price table if it's there (it's offline and puts 3x ETFs in the
+    # book), otherwise a synthetic one.
     cache = ROOT / "prices_cache.parquet"
     prices = pd.read_parquet(cache) if cache.exists() else synthetic_prices()
     run_day = (prices.index[-1] + pd.offsets.BDay(1)).date()

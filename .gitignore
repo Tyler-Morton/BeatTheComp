@@ -19,9 +19,10 @@ kaggle/
 # Local Claude Code settings (machine-specific, do not push)
 .claude/settings.local.json
 
-# Challenger bot - code is tracked (validated 2026-06-09, runs via Actions);
-# only the big research backtest cache stays local
+# Challenger price caches stay local. They hold Tiingo data, and Tiingo's plans don't
+# allow sharing it.
 challenger/prices_cache.parquet
+challenger/live_prices.parquet
 
 # Research lab - local only, never pushed (experiments + journal)
 research/

@@ -1,8 +1,7 @@
-"""The safety checks that run before we're allowed to trade.
+"""Safety checks that run before the bot can trade.
 
-Think of this as the bouncer at the door. Every check has to pass before the bot
-places a single order — if any one of them trips, we skip trading that day and
-fire off an alert. Better to sit on our hands than do something dumb.
+Every check has to pass before it places an order. If one trips, we skip trading that day and
+send an alert.
 """
 
 import logging
@@ -35,8 +34,6 @@ except Exception:
 logger = logging.getLogger(__name__)
 
 
-# ── Alert dispatch ─────────────────────────────────────────────────────────────
-
 def _alert(message: str) -> None:
     logger.warning("RISK ALERT: %s", message)
     with open(ALERTS_LOG, "a") as f:
@@ -57,22 +54,14 @@ def _alert(message: str) -> None:
             logger.error("Email alert failed: %s", exc)
 
 
-# ── Individual checks ──────────────────────────────────────────────────────────
-
-# ── Drawdown circuit breaker (de-risk only) ───────────────────────────────────
+# Drawdown breaker. Drawdown is measured from the broker's high-water mark, saved in
+# BREAKER_STATE_FILE. Once it trips, only risk-reducing trades go through and the
+# proceeds go to CASH_ASSET. It clears when equity gets back to the trip level, or
+# after BREAKER_RESET_SESSIONS sessions, when the high-water mark resets to current equity.
 #
-# Rewritten 2026-10-13 (approved by Tyler). The old breaker measured drawdown from
-# the max of daily_log.csv (OPEN snapshots: $1,118.13 vs the true broker peak
-# $1,147.80) and, once tripped, blocked EVERY order — de-risking included — with no
-# re-entry rule, so the book could freeze in its post-loss composition forever
-# (the EXP-024 replica froze 136 sessions). Now:
-#   1. Reference = high-water mark of broker-reported equity, persisted in
-#      BREAKER_STATE_FILE and seeded from max(daily_log equity, broker history).
-#   2. Tripped (equity < (1 - DRAWDOWN_CIRCUIT_BREAKER) * HWM) => BREAKER mode:
-#      only risk-reducing trades (see derisk_targets); proceeds park in CASH_ASSET.
-#   3. Leaves BREAKER when equity is back at/above the trip level, or after
-#      BREAKER_RESET_SESSIONS sessions in BREAKER the HWM re-bases to current equity.
-# NOTE: backtest.py / perf_report.py / EXP-024 still model the OLD rule.
+# The old version measured from daily_log.csv, which read low, and blocked every
+# order with no way back in, so the book could freeze after a loss.
+# backtest.py and perf_report.py still model the old rule.
 
 _BREAKER_FIELDS = ["hwm", "in_breaker", "breaker_sessions", "last_session", "updated_at"]
 
@@ -146,13 +135,13 @@ def update_breaker(
     history_fn=None,
     state_path: Path | None = None,
 ) -> dict:
-    """Advance the breaker one session on a broker equity read and persist it.
+    """Advance the breaker one session on a broker equity read and save it.
 
-    history_fn: zero-arg callable returning broker equity history values; called
-    only when there is no state file yet (to seed the high-water mark).
+    history_fn returns broker equity history. It's only called when there's no state file yet,
+    to seed the high-water mark.
 
-    Returns {"in_breaker", "hwm", "trip_level", "drawdown", "sessions", "event", "note"}
-    where event is one of: ok, tripped, derisk, recovered, reset, bad_read.
+    Returns {"in_breaker", "hwm", "trip_level", "drawdown", "sessions", "event", "note"}, where
+    event is one of: ok, tripped, derisk, recovered, reset, bad_read.
     """
     path = Path(state_path or BREAKER_STATE_FILE)
     today = today or str(datetime.today().date())
@@ -170,10 +159,9 @@ def update_breaker(
                 "drawdown": dd, "sessions": state["breaker_sessions"],
                 "event": event, "note": note}
 
-    # Bad-read guard: an unreadable (<= 0) or implausibly small (< 5% of HWM) read
-    # is a broker glitch, not a loss (the 2026-06-08 $0 and 2026-07-07 $0.30 reads).
-    # Change nothing: no trip, no release, no session counted, HWM untouched. If we
-    # were already in BREAKER we stay there.
+    # Bad-read guard. An unreadable (<= 0) or tiny (< 5% of the high-water mark) read is a broker
+    # glitch, like the 2026-06-08 and 2026-07-07 reads. Change nothing: no trip, no release, no
+    # session counted, high-water mark untouched. If we were already in breaker mode we stay there.
     hwm0 = state["hwm"]
     if (not np.isfinite(equity) or equity <= 0
             or (hwm0 > 0 and equity < IMPLAUSIBLE_VALUE_FRAC * hwm0)):
@@ -231,12 +219,11 @@ def update_breaker(
 
 def derisk_targets(current_weights: dict, target_weights: dict,
                    cash_asset: str = CASH_ASSET) -> dict:
-    """Clip the normal targets so the only trades are risk-reducing.
+    """Clip the normal targets so the only trades reduce risk.
 
-    Each risky position goes to min(current, target): reductions toward target and
-    full exits happen, but nothing is bought or increased. Everything freed (plus
-    any uninvested cash) is assigned to the cash asset. Total risky exposure can
-    therefore only fall.
+    Each risky position goes to min(current, target), so nothing is bought or increased and
+    total risky exposure can only fall. Everything freed, plus any uninvested cash, goes to the
+    cash asset.
     """
     out: dict[str, float] = {}
     for sym in set(current_weights) | set(target_weights):
@@ -251,11 +238,7 @@ def derisk_targets(current_weights: dict, target_weights: dict,
 
 
 def check_volatility(returns: pd.DataFrame, weights: dict) -> tuple[bool, str]:
-    """Block the trade if the target portfolio would be too wild to stomach.
-
-    We estimate how bouncy this mix has been over the last 20 days and stop if
-    it's above MAX_PORTFOLIO_VOL.
-    """
+    """Fail if the target mix's vol over the last 20 days is above MAX_PORTFOLIO_VOL."""
     tickers = [t for t in weights if t in returns.columns]
     if not tickers:
         return True, ""
@@ -270,10 +253,10 @@ def check_volatility(returns: pd.DataFrame, weights: dict) -> tuple[bool, str]:
 
 
 def check_concentration(weights: dict) -> tuple[bool, str]:
-    """Don't let any one position get bigger than MAX_SINGLE_WEIGHT — no all-in bets.
+    """Fail if any position is bigger than MAX_SINGLE_WEIGHT.
 
-    The cash asset (SHV) is exempt: when the vol-target overlay de-risks, it parks a
-    large slice in cash on purpose, and parking in T-bills is not a risky concentration.
+    The cash asset (SHV) is exempt. The vol-target overlay parks a large slice there on purpose,
+    and T-bills aren't a risky concentration.
     """
     for ticker, w in weights.items():
         if ticker == CASH_ASSET:
@@ -286,10 +269,9 @@ def check_concentration(weights: dict) -> tuple[bool, str]:
 
 
 def check_correlation(returns: pd.DataFrame) -> tuple[bool, str]:
-    """Make sure we're actually diversified, not just holding the same bet five times.
+    """Fail if all of ASSETS is moving together (average pairwise correlation above 0.85).
 
-    If everything we own is moving together (average correlation above 0.85),
-    that "diversification" is fake and we treat it as a red flag.
+    main.py passes returns for the whole universe, so this includes assets we don't hold.
     """
     if len(returns.columns) < 2:
         return True, ""
@@ -305,14 +287,13 @@ def check_correlation(returns: pd.DataFrame) -> tuple[bool, str]:
 
 
 def should_rebalance(current_weights: dict, target_weights: dict) -> bool:
-    """Is it actually worth trading today?
+    """True if some position has drifted from target by REBALANCE_DRIFT_THRESHOLD or more.
 
-    Trading costs money, so we only bother if some position has drifted from its
-    target by more than REBALANCE_DRIFT_THRESHOLD. If we're already close, sit tight.
+    Trading costs money, so if we're already close we skip it.
     """
     all_tickers = set(current_weights) | set(target_weights)
     if not all_tickers:
-        return False  # nothing on either side to compare, so nothing to do
+        return False
     max_drift = max(
         abs(current_weights.get(t, 0.0) - target_weights.get(t, 0.0))
         for t in all_tickers
@@ -328,11 +309,11 @@ def run_all_checks(
     returns: pd.DataFrame,
     target_weights: dict,
 ) -> tuple[bool, list[str]]:
-    """Run the whole checklist. Hands back (did everything pass?, list of what failed).
+    """Run every check. Returns (all passed, list of what failed).
 
-    The drawdown breaker is no longer part of this all-or-nothing gate: it puts the
-    book in de-risk-only mode instead of blocking every order (see update_breaker).
-    portfolio_value is kept in the signature for callers.
+    The drawdown breaker isn't part of this all-or-nothing gate. It puts the book in de-risk-only
+    mode instead of blocking every order (see update_breaker). portfolio_value stays in the
+    signature for callers.
     """
     failures: list[str] = []
     for ok, msg in [

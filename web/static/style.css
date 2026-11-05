@@ -1,5 +1,3 @@
-/* Trading desk — calm neutral surfaces, one accent, tabular figures. */
-
 :root {
   color-scheme: light;
   --bg: #f6f6f3;
@@ -94,7 +92,6 @@ button { font: inherit; color: inherit; }
 .pos { color: var(--pos); }
 .neg { color: var(--neg); }
 
-/* ── top bar ─────────────────────────────────────────────── */
 .topbar {
   position: sticky; top: 0; z-index: 20;
   background: color-mix(in srgb, var(--bg) 92%, transparent);
@@ -130,7 +127,7 @@ button { font: inherit; color: inherit; }
 .icon-btn.spin svg { animation: spin .8s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
 
-/* ── layout ──────────────────────────────────────────────── */
+/* Layout */
 .view { max-width: 1240px; margin: 0 auto; padding: 28px 24px 48px; min-height: 70vh; }
 .foot {
   max-width: 1240px; margin: 0 auto; padding: 20px 24px 40px;
@@ -163,7 +160,7 @@ button { font: inherit; color: inherit; }
 .card-body { padding: 12px 18px 16px; }
 .card-foot { padding: 10px 18px; border-top: 1px solid var(--line); font-size: 12.5px; color: var(--muted); }
 
-/* ── strip of KPIs (one bordered row, hairline dividers) ─── */
+/* KPI strip: one bordered row with thin dividers */
 .kpis {
   display: grid; grid-template-columns: repeat(var(--n, 4), minmax(0, 1fr));
   background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius);
@@ -175,7 +172,7 @@ button { font: inherit; color: inherit; }
 .kpi .v { font-size: 20px; font-weight: 600; letter-spacing: -0.02em; margin-top: 4px; font-variant-numeric: tabular-nums; white-space: nowrap; }
 .kpi .s { font-size: 12px; color: var(--muted); margin-top: 1px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-variant-numeric: tabular-nums; }
 
-/* ── book cards on the desk ─────────────────────────────── */
+/* Book cards on the desk page */
 .book-card { display: flex; flex-direction: column; transition: border-color .15s, transform .15s; }
 .book-card:hover { border-color: var(--line-strong); }
 .book-card .top { padding: 16px 18px 0; display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; }
@@ -201,7 +198,6 @@ button { font: inherit; color: inherit; }
 .book-card .foot-line .go { color: var(--ink-2); font-weight: 500; }
 .book-card:hover .go { color: var(--accent-ink); }
 
-/* ── pills ──────────────────────────────────────────────── */
 .pill {
   display: inline-flex; align-items: center; gap: 6px; white-space: nowrap;
   font-size: 12px; font-weight: 500; padding: 2px 8px 2px 7px; border-radius: 999px;
@@ -216,7 +212,7 @@ button { font: inherit; color: inherit; }
 .pill.tag { font-size: 11px; padding: 1px 7px; color: var(--muted); }
 .status-txt { font-weight: 600; letter-spacing: .02em; font-size: 11px; }
 
-/* ── segmented control ─────────────────────────────────── */
+/* Segmented control */
 .seg { display: inline-flex; padding: 2px; border-radius: 8px; background: var(--surface-2); box-shadow: inset 0 0 0 1px var(--line); }
 .seg button {
   border: 0; background: transparent; padding: 4px 10px; border-radius: 6px; cursor: pointer;
@@ -226,7 +222,6 @@ button { font: inherit; color: inherit; }
 .seg button.on { background: var(--surface); color: var(--ink); box-shadow: 0 0 0 1px var(--line), 0 1px 2px rgba(0,0,0,.05); }
 .seg button .c { color: var(--muted); margin-left: 4px; font-variant-numeric: tabular-nums; }
 
-/* ── charts ────────────────────────────────────────────── */
 .chart { position: relative; width: 100%; }
 .chart svg { display: block; overflow: visible; }
 .chart .gl { stroke: var(--grid); stroke-width: 1; shape-rendering: crispEdges; }
@@ -253,7 +248,6 @@ button { font: inherit; color: inherit; }
 .rg-CHOPPY { background: var(--s4); }
 .rg-RISK_OFF { background: var(--crit); }
 
-/* ── tables ────────────────────────────────────────────── */
 .tbl-wrap { overflow-x: auto; }
 table { width: 100%; border-collapse: collapse; font-size: 13px; }
 th {
@@ -275,7 +269,7 @@ tbody tr:hover td { background: var(--surface-2); }
 .wbar .track { flex: 1; height: 6px; background: var(--surface-2); border-radius: 3px; overflow: hidden; min-width: 40px; }
 .wbar .fill { height: 100%; border-radius: 3px; }
 
-/* ── research list ─────────────────────────────────────── */
+/* Research page */
 .toolbar { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-bottom: 14px; }
 .search {
   height: 32px; border: 1px solid var(--line); background: var(--surface); color: var(--ink);
@@ -309,7 +303,7 @@ tbody tr:hover td { background: var(--surface-2); }
 .callout .bar { width: 3px; align-self: stretch; border-radius: 2px; background: var(--accent); flex: none; }
 .callout.warn .bar { background: var(--warn); }
 
-/* ── health ────────────────────────────────────────────── */
+/* Health page */
 .list-row { display: flex; gap: 12px; padding: 10px 18px; border-top: 1px solid var(--line); align-items: flex-start; }
 .list-row:first-child { border-top: 0; }
 .list-row .when { font-size: 12px; color: var(--muted); white-space: nowrap; min-width: 92px; font-variant-numeric: tabular-nums; }
@@ -327,7 +321,6 @@ tbody tr:hover td { background: var(--surface-2); }
 
 .tabs-inline { display: flex; gap: 2px; }
 
-/* ── responsive ────────────────────────────────────────── */
 @media (max-width: 1080px) {
   .g3 { grid-template-columns: minmax(0, 1fr); }
   .g3 .book-card .desc { min-height: 0; }

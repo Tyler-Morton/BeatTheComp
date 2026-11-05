@@ -1,10 +1,9 @@
 name: VolBot Daily
 
 on:
-  # RETIRED 2026-10-13 (see volbot/README.md). Entries have been off since
-  # 2026-07-28 and the account is flat, so the schedule and the shared
-  # market_open_trigger dispatch only committed identical log rows twice a day.
-  # Manual runs only:
+  # Retired, see volbot/README.md. Entries have been off since 2026-07-28 and the account is
+  # flat, so the schedule and the shared market_open_trigger dispatch only committed identical
+  # log rows twice a day. Manual runs only. The old triggers were:
   #   repository_dispatch: [market_open_trigger, volbot_trigger]
   #   schedule: "30 14 * * 1-5", "30 15 * * 1-5"
   workflow_dispatch:
@@ -35,18 +34,16 @@ jobs:
         run: |
           git config user.name  "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          # `git add -A -- volbot/` instead of naming files: volbot_trades.csv
-          # does not exist until the first condor closes, and naming a missing
-          # path makes `git add` exit non-zero. Combined with the old
-          # `2>/dev/null || true` that would have silently committed NOTHING —
-          # the exact failure that cost the champion 17 days of daily rows
-          # (see rebalance.yml). -A on the directory picks up new files as they
-          # appear and skips __pycache__ (gitignored) on its own.
+          # Add the whole directory instead of naming files. volbot_trades.csv doesn't exist until
+          # the first condor closes, and naming a missing path makes `git add` exit non-zero.
+          # With `2>/dev/null || true` that would silently commit nothing, the same failure that
+          # cost the champion 17 days of daily rows (see rebalance.yml). -A on the directory picks
+          # up new files as they appear and skips the gitignored __pycache__.
           git add -A -- volbot/
           git diff --cached --quiet && echo "Nothing to commit" && exit 0
           git commit -m "VolBot log $(date -u '+%Y-%m-%d %H:%M UTC')"
-          # Fail loudly if all pushes fail: volbot_state.json is the rung ledger,
-          # and losing it silently is how state and broker desync.
+          # Fail loudly if all pushes fail. volbot_state.json is the rung ledger, and losing it
+          # silently is how state and broker desync.
           pushed=0
           for i in 1 2 3; do
             if git pull --rebase origin main && git push; then pushed=1; break; fi

@@ -1,4 +1,4 @@
-"""Portfolio Bot Dashboard — fintech dark mode, Inter typography, polished UI."""
+"""Streamlit dashboard for the portfolio bot."""
 
 import json
 import os
@@ -19,43 +19,38 @@ from config import (
     REGIME_LOG, RISK_FREE_RATE, SENTIMENT_LOG, WATCHLIST_ALERTS, WATCHLIST_LOG,
 )
 
-# ── Page config ────────────────────────────────────────────────────────────────
-
 st.set_page_config(
     page_title="Portfolio Bot",
     layout="wide",
-    page_icon="📈",
     initial_sidebar_state="collapsed",
 )
 
 
-# ── Design tokens (Fintech Dark Mode OLED) ─────────────────────────────────────
-
 COLOR = {
     # Surfaces
-    "bg":         "#0a0e1a",     # deep navy-black background
-    "surface":    "#131829",     # raised card surface
-    "surface_2":  "#1a2238",     # higher elevation (hover, modals)
-    "border":     "#1f2a44",     # subtle separators
-    "border_2":   "#2a3658",     # stronger borders for focus
+    "bg":         "#0a0e1a",
+    "surface":    "#131829",
+    "surface_2":  "#1a2238",
+    "border":     "#1f2a44",
+    "border_2":   "#2a3658",
 
     # Text
-    "text":       "#f1f5f9",     # primary high-contrast
-    "text_2":     "#94a3b8",     # secondary muted
-    "text_3":     "#64748b",     # tertiary captions
+    "text":       "#f1f5f9",
+    "text_2":     "#94a3b8",
+    "text_3":     "#64748b",
 
     # Brand
-    "primary":    "#3b82f6",     # bright blue (data lines, links)
-    "primary_2":  "#60a5fa",     # lighter blue (hover)
-    "accent":     "#f59e0b",     # amber (highlights, alerts)
+    "primary":    "#3b82f6",
+    "primary_2":  "#60a5fa",
+    "accent":     "#f59e0b",
 
-    # Semantic (financial)
-    "success":    "#10b981",     # gain / bullish
+    # Gains, losses and status
+    "success":    "#10b981",
     "success_2":  "#34d399",
-    "danger":     "#ef4444",     # loss / bearish
+    "danger":     "#ef4444",
     "danger_2":   "#f87171",
-    "warning":    "#fbbf24",     # caution
-    "info":       "#06b6d4",     # neutral info
+    "warning":    "#fbbf24",
+    "info":       "#06b6d4",
 
     # Regime
     "risk_on":    "#10b981",
@@ -63,7 +58,7 @@ COLOR = {
     "risk_off":   "#ef4444",
 }
 
-# Plotly base theme — legend handled per-chart to avoid keyword collisions
+# Base Plotly theme. The legend is set per chart to avoid keyword collisions.
 PLOTLY_BASE = dict(
     paper_bgcolor="rgba(0,0,0,0)",
     plot_bgcolor="rgba(0,0,0,0)",
@@ -85,11 +80,8 @@ LEGEND_BASE = dict(
     font=dict(color=COLOR["text_2"], size=11),
 )
 
-# Backward compat alias — old code uses PLOTLY_LAYOUT
-PLOTLY_LAYOUT = PLOTLY_BASE
 
-
-# ── Global CSS — Inter font + dark theme + polish ──────────────────────────────
+# Global CSS
 
 st.markdown(f"""
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -97,7 +89,7 @@ st.markdown(f"""
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
 
 <style>
-    /* ── Motion tokens (Emil's curves — stronger than built-in CSS easings) ── */
+    /* Motion tokens */
     :root {{
         --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
         --ease-in-out: cubic-bezier(0.77, 0, 0.175, 1);
@@ -114,7 +106,7 @@ st.markdown(f"""
         font-feature-settings: 'cv11', 'ss01', 'ss03';
     }}
 
-    /* Background — true OLED dark */
+    /* Background */
     .stApp {{
         background: {COLOR['bg']};
     }}
@@ -122,7 +114,7 @@ st.markdown(f"""
     /* Hide Streamlit chrome */
     #MainMenu, footer, header[data-testid="stHeader"] {{ visibility: hidden; }}
 
-    /* Container — wider feel */
+    /* Container */
     .block-container {{
         max-width: 1440px;
         padding-top: 1.5rem !important;
@@ -157,7 +149,7 @@ st.markdown(f"""
         letter-spacing: 0.02em !important;
     }}
 
-    /* ── Metric cards: subtle hover lift + press feedback ── */
+    /* Metric cards: lift on hover, shrink on press */
     [data-testid="stMetric"] {{
         background: {COLOR['surface']};
         border: 1px solid {COLOR['border']};
@@ -170,7 +162,7 @@ st.markdown(f"""
         /* Stagger fade-in on first paint */
         animation: card-in 360ms var(--ease-out) both;
     }}
-    /* Stagger metric cards 40ms apart — natural cascade, not all-at-once */
+    /* Stagger metric cards 40ms apart */
     [data-testid="column"]:nth-of-type(1) [data-testid="stMetric"] {{ animation-delay: 0ms; }}
     [data-testid="column"]:nth-of-type(2) [data-testid="stMetric"] {{ animation-delay: 40ms; }}
     [data-testid="column"]:nth-of-type(3) [data-testid="stMetric"] {{ animation-delay: 80ms; }}
@@ -181,7 +173,7 @@ st.markdown(f"""
         to   {{ opacity: 1; transform: translateY(0)   scale(1); }}
     }}
 
-    /* Hover only on devices that actually hover — never on touch */
+    /* Hover only on devices that can hover, so touch screens skip it */
     @media (hover: hover) and (pointer: fine) {{
         [data-testid="stMetric"]:hover {{
             border-color: {COLOR['border_2']};
@@ -216,7 +208,7 @@ st.markdown(f"""
         font-variant-numeric: tabular-nums !important;
     }}
 
-    /* ── Tabs: snappy custom curve, subtle indicator slide ── */
+    /* Tabs */
     .stTabs [data-baseweb="tab-list"] {{
         gap: 0.25rem;
         border-bottom: 1px solid {COLOR['border']};
@@ -258,7 +250,7 @@ st.markdown(f"""
         }}
     }}
 
-    /* ── Buttons: scale(0.97) press feedback (Emil's signature) ── */
+    /* Buttons: shrink slightly on press */
     .stButton button {{
         background: {COLOR['primary']} !important;
         color: white !important;
@@ -281,7 +273,7 @@ st.markdown(f"""
         transform: scale(0.97);
     }}
 
-    /* ── Alerts: enter from below with custom curve ── */
+    /* Alerts slide in from below */
     [data-testid="stAlert"] {{
         border-radius: 10px !important;
         border-width: 1px !important;
@@ -293,14 +285,14 @@ st.markdown(f"""
         to   {{ opacity: 1; transform: translateY(0)   scale(1); }}
     }}
 
-    /* Dividers — subtle */
+    /* Dividers */
     hr {{
         border-color: {COLOR['border']} !important;
         margin: 1.5rem 0 !important;
         opacity: 0.6;
     }}
 
-    /* ── Plotly chart container: gentle entrance ── */
+    /* Plotly chart container */
     .js-plotly-plot {{
         background: {COLOR['surface']} !important;
         border: 1px solid {COLOR['border']};
@@ -315,7 +307,7 @@ st.markdown(f"""
         }}
     }}
 
-    /* Section heading entrance (subtle) */
+    /* Section heading entrance */
     h2 {{
         animation: heading-in 320ms var(--ease-out) both;
     }}
@@ -324,7 +316,7 @@ st.markdown(f"""
         to   {{ opacity: 1; transform: translateY(0); }}
     }}
 
-    /* ── Status badge: subtle entrance + press ── */
+    /* Status badge */
     .status-badge {{
         display: inline-flex;
         align-items: center;
@@ -345,7 +337,7 @@ st.markdown(f"""
     .badge-danger  {{ background: rgba(239,68,68,0.15); color: {COLOR['danger_2']}; border: 1px solid rgba(239,68,68,0.3); }}
     .badge-info    {{ background: rgba(6,182,212,0.15); color: {COLOR['info']}; border: 1px solid rgba(6,182,212,0.3); }}
 
-    /* ── Live regime dot: gentle pulse (only on active "on" states) ── */
+    /* Regime dot pulse */
     .regime-dot {{
         width: 8px; height: 8px;
         border-radius: 50%;
@@ -365,13 +357,13 @@ st.markdown(f"""
         50%      {{ transform: scale(1.6); opacity: 0; }}
     }}
 
-    /* Inputs / selectboxes / checkboxes — match motion language */
+    /* Inputs, selectboxes, checkboxes */
     .stSelectbox > div, .stMultiSelect > div, .stCheckbox > div {{
         transition: border-color var(--dur-2) var(--ease-out),
                     background-color var(--dur-2) var(--ease-out);
     }}
 
-    /* ── Reduced motion: keep opacity, kill movement (Emil's rule) ── */
+    /* Reduced motion: keep the fades, drop the movement */
     @media (prefers-reduced-motion: reduce) {{
         *, *::before, *::after {{
             animation-duration: 200ms !important;
@@ -392,7 +384,7 @@ st.markdown(f"""
         .stButton button:active {{ transform: none !important; }}
     }}
 
-    /* Focus rings — visible for keyboard navigation */
+    /* Focus rings for keyboard navigation */
     button:focus-visible, [role="button"]:focus-visible, input:focus-visible {{
         outline: 2px solid {COLOR['primary']} !important;
         outline-offset: 2px !important;
@@ -407,7 +399,7 @@ st.markdown(f"""
 """, unsafe_allow_html=True)
 
 
-# ── Data loaders ───────────────────────────────────────────────────────────────
+# Data loaders
 
 @st.cache_data(ttl=60)
 def _load_csv(path: str, parse_dates: list[str] | None = None) -> pd.DataFrame:
@@ -443,10 +435,9 @@ def _load_alerts() -> pd.DataFrame:
 
 @st.cache_data(ttl=30)
 def _load_live() -> dict | None:
-    """Live Alpaca account snapshot (equity + positions). None if unavailable.
+    """Live Alpaca equity and positions, or None if unavailable.
 
-    Cached 30s so reloading the page reflects near-real-time broker state
-    without hammering the API on every Streamlit rerun.
+    Cached for 30s so a reload stays close to real time without calling the API on every rerun.
     """
     try:
         from broker import get_live_snapshot
@@ -485,8 +476,6 @@ def _clean_notes(raw) -> str:
     return "" if s.lower() == "nan" else s
 
 
-# ── Load data ─────────────────────────────────────────────────────────────────
-
 daily_df = _load_daily()
 sentiment_df = _load_sentiment()
 regime_df = _load_regime()
@@ -495,10 +484,10 @@ alerts_df = _load_alerts()
 qdf = _load_quarterly()
 latest = _latest_row(daily_df)
 latest_regime = _latest_row(regime_df).get("regime", "-")
-live = _load_live()   # live Alpaca snapshot (equity + positions), or None
+live = _load_live()
 
 
-# ── HEADER ────────────────────────────────────────────────────────────────────
+# Header
 
 REGIME_META = {
     "RISK_ON":  ("Bull",     COLOR["risk_on"],  "success"),
@@ -534,7 +523,7 @@ with col_status:
 
 st.markdown("<div style='margin: 1.25rem 0 0.5rem 0;'></div>", unsafe_allow_html=True)
 
-# ── KPI ROW ────────────────────────────────────────────────────────────────────
+# KPI row
 
 def _format_money(v): return f"${v:,.0f}"
 def _format_pct(v): return f"{v*100:+.2f}%"
@@ -545,7 +534,7 @@ if latest:
     exp_ret = float(latest.get("expected_return", 0))
     ann_vol = float(latest.get("annual_vol", 0))
 
-    # Prefer live Alpaca equity + intraday change; fall back to morning CSV snapshot.
+    # Use live Alpaca equity and intraday change if we have them, otherwise the morning CSV.
     if live and live.get("equity"):
         port_val = float(live["equity"])
         last_eq = float(live.get("last_equity", 0) or 0)
@@ -556,7 +545,6 @@ if latest:
         else:
             delta_str = None
     elif len(daily_df) >= 2:
-        # Compute today's change vs yesterday from the daily log
         prev_val = float(daily_df.iloc[-2]["portfolio_value"])
         day_change = port_val - prev_val
         day_change_pct = (port_val / prev_val - 1) if prev_val else 0
@@ -578,14 +566,12 @@ else:
     st.info("No data yet. Trigger a bot run to populate.")
 
 
-# ── HOLDINGS SECTION ──────────────────────────────────────────────────────────
-
 st.markdown("## Holdings")
 
 if not latest:
     st.info("No holdings data yet.")
 else:
-    # Prefer live broker positions; fall back to the morning target weights.
+    # Use live broker positions if we have them, otherwise the morning target weights.
     if live and live.get("positions"):
         weights = {sym: p["weight"] for sym, p in live["positions"].items() if p["weight"] > 0.001}
     else:
@@ -593,7 +579,6 @@ else:
     notes = _clean_notes(latest.get("notes", ""))
     orders = int(latest.get("orders_placed", 0) or 0)
 
-    # Status messaging
     if "breach" in notes.lower() or "fail" in notes.lower() or "spike" in notes.lower() or "scaling" in notes.lower():
         st.markdown(f'<div class="status-badge badge-warning">Trades blocked: {notes}. Showing intended target weights.</div>', unsafe_allow_html=True)
     elif notes == "no_rebalance":
@@ -611,7 +596,7 @@ else:
         col_donut, col_table = st.columns([1, 1.4])
 
         with col_donut:
-            # Only show labels for slices >= 3%; aggregate tiny ones into "Other"
+            # Slices under 3% get grouped into "Other".
             MIN_LABEL_PCT = 3.0
             sorted_weights = sorted(weights.items(), key=lambda x: -x[1])
             major = [(t, v) for t, v in sorted_weights if v * 100 >= MIN_LABEL_PCT]
@@ -652,7 +637,7 @@ else:
                 if not sent_df.empty:
                     s = sent_df[sent_df["ticker"] == ticker].tail(1)
                     if not s.empty: sent = float(s.iloc[0]["score"])
-                # Use the live market value when we have it; else derive from weight.
+                # Live market value if we have it, otherwise estimate it from the weight.
                 value = live_pos[ticker]["market_value"] if ticker in live_pos else w * port_val
                 rows.append({
                     "Asset": ticker,
@@ -676,16 +661,13 @@ else:
             )
 
 
-# ── PERFORMANCE SECTION ───────────────────────────────────────────────────────
-
 st.markdown("## Performance")
 
 if daily_df.empty or "portfolio_value" not in daily_df.columns or len(daily_df) < 2:
     st.markdown(
         f'<div style="background:{COLOR["surface"]}; border:1px solid {COLOR["border"]}; '
         f'border-radius:12px; padding:2.5rem; text-align:center; color:{COLOR["text_3"]};">'
-        f'<div style="font-size:2.5rem; opacity:0.4;">📈</div>'
-        f'<div style="margin-top:0.5rem;">Equity curve will appear after a few days of data.</div></div>',
+        f'Equity curve will appear after a few days of data.</div>',
         unsafe_allow_html=True,
     )
 else:
@@ -706,7 +688,7 @@ else:
         hovertemplate="<b>Portfolio</b><br>%{x|%b %d}<br>$%{y:,.2f}<extra></extra>",
     ))
 
-    # SPY overlay, scaled to start at the same $ value as portfolio for direct comparison
+    # SPY line, scaled to start at the same dollar value as the portfolio.
     try:
         from data import load_price_cache
         cached = load_price_cache(max_age_hours=24)
@@ -715,7 +697,6 @@ else:
             start_idx = daily_df["date"].min()
             spy_window = spy[spy.index >= start_idx]
             if not spy_window.empty:
-                # Scale SPY so it starts at the same dollar value as your portfolio
                 spy_scaled = spy_window / spy_window.iloc[0] * starting_val
                 fig_eq.add_trace(go.Scatter(
                     x=spy_scaled.index, y=spy_scaled.values, name="SPY (scaled)",
@@ -735,7 +716,7 @@ else:
     with c2: st.metric("Annualized (CAGR)", _format_pct(cagr))
     with c3: st.metric("Trading Days", f"{len(daily_df)}")
 
-    # Smart y-axis range: pad ±2% around min/max so tiny moves are visible
+    # Pad the y-axis around the min and max so tiny moves are visible.
     y_min = float(port_values.min())
     y_max = float(port_values.max())
     spread = max(y_max - y_min, y_max * 0.01)   # at least 1% spread so the chart isn't a hairline
@@ -751,8 +732,6 @@ else:
     fig_eq.update_yaxes(tickprefix="$", tickformat=",.0f")
     st.plotly_chart(fig_eq, use_container_width=True, config={"displayModeBar": False})
 
-
-# ── WATCHLIST ─────────────────────────────────────────────────────────────────
 
 st.markdown("## Watchlist")
 
@@ -801,8 +780,6 @@ else:
             st.dataframe(alerts_show, hide_index=True, use_container_width=True)
 
 
-# ── BACKTEST ──────────────────────────────────────────────────────────────────
-
 st.markdown("## Backtest, 2019 to today")
 
 if qdf.empty:
@@ -821,7 +798,6 @@ else:
         "SPY": "#64748b",
     }
 
-    # Win-rate KPIs
     if "SPY" in qdf.columns:
         win_cols = st.columns(3)
         for i, strat in enumerate(["MAX_SHARPE", "HRP", "HRP_MOMENTUM"]):
@@ -856,8 +832,6 @@ else:
         st.plotly_chart(fig_q, use_container_width=True, config={"displayModeBar": False})
 
 
-# ── RECENT ACTIVITY ──────────────────────────────────────────────────────────
-
 st.markdown("## Recent Activity")
 
 if daily_df.empty:
@@ -887,8 +861,6 @@ else:
         },
     )
 
-
-# ── LIVE TOOLS ────────────────────────────────────────────────────────────────
 
 st.markdown("## Live Tools")
 
@@ -1021,11 +993,9 @@ with tab3:
                 st.error(f"Frontier unavailable: {exc}")
 
 
-# ── FOOTER ────────────────────────────────────────────────────────────────────
-
 st.markdown(
     f'<div style="text-align:center; color:{COLOR["text_3"]}; font-size:0.6875rem; '
     f'letter-spacing:0.06em; text-transform:uppercase; margin-top:3rem; padding-top:1.5rem; '
-    f'border-top:1px solid {COLOR["border"]};">Powered by Claude · Alpaca · Streamlit</div>',
+    f'border-top:1px solid {COLOR["border"]};">Built with Alpaca and Streamlit</div>',
     unsafe_allow_html=True,
 )

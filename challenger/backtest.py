@@ -1,13 +1,7 @@
-"""Challenger backtest: the 4-sleeve diversified book vs SPY and the champion proxy.
+"""Challenger backtest: the sleeve book vs SPY and the champion proxy. Trades nothing.
 
-RESEARCH ONLY — trades nothing. Pulls clean history from Tiingo, then tests the
-exact sleeve logic (sleeves.py) and the exact live vol-targeting code
-(risk_overlay.vol_target_scaler) that the live challenger pipeline uses.
-
-The law: the challenger only gets to trade if it beats the simpler alternatives
-out-of-sample here, and the Deflated Sharpe Ratio says the edge isn't luck.
-
-Run:  python3 challenger/backtest.py
+Runs the same sleeve logic and vol-targeting code as the live pipeline over the full price history.
+There's no train/test split, so these results are in sample.
 """
 
 from __future__ import annotations
@@ -27,12 +21,12 @@ sys.path.insert(0, str(HERE))
 from dotenv import load_dotenv
 load_dotenv(ROOT / ".env")
 
-from risk_overlay import vol_target_scaler          # the LIVE overlay code
+from risk_overlay import vol_target_scaler          # same overlay code as live
 import sleeves
 from sleeves import combined_weights, SLEEVE_BUDGETS, CASH, VOL_MODEL
 
 TD = 252
-RF = 0.045                  # Sharpe hurdle (matches the lab's convention)
+RF = 0.045                  # Sharpe hurdle, the strategy lab's convention
 CASH_YIELD = 0.02           # conservative flat yield credited to the cash sleeve
 TCOST = 0.0010              # 10 bps per unit turnover
 DRIFT = 0.02                # only "trade" when an asset drifts >2% (mirrors live)
@@ -41,8 +35,6 @@ CACHE = HERE / "prices_cache.parquet"
 CHAMPION_3X = ["TQQQ", "SOXL", "TECL"]
 ALL_TICKERS = sorted(set(sleeves.ALL_TICKERS + CHAMPION_3X))
 
-
-# ── Data ──────────────────────────────────────────────────────────────────────
 
 def load_data() -> pd.DataFrame:
     if CACHE.exists():
@@ -61,7 +53,7 @@ def load_data() -> pd.DataFrame:
             df = pd.DataFrame(j)
             df["date"] = pd.to_datetime(df["date"]).dt.tz_localize(None)
             frames.append(df.set_index("date")["adjClose"].rename(t))
-            print(f"  {t}: {len(df)} rows {df['date'].iloc[0].date()} -> {df['date'].iloc[-1].date()}")
+            print(f"  {t}: {len(df)} rows {df['date'].iloc[0].date()} to {df['date'].iloc[-1].date()}")
         else:
             print(f"  {t}: FAILED ({str(j)[:80]})")
     px = pd.concat(frames, axis=1).sort_index().ffill()
@@ -69,7 +61,7 @@ def load_data() -> pd.DataFrame:
     return px
 
 
-# ── Engine: monthly sleeve rebalance + DAILY vol-target scaling ───────────────
+# Engine: monthly sleeve rebalance, daily vol-target scaling.
 
 def _held_return(held: dict, day_ret: pd.Series) -> float:
     """One day's return on the weights held coming into that day."""
@@ -95,16 +87,15 @@ def run_book(px: pd.DataFrame, budgets: dict, target_vol: float,
     held: dict = {}
     for i in range(260, len(idx)):
         d = idx[i]
-        # Day i's return accrues to what we held coming INTO day i. The decision
-        # below uses day i's close, so it can only earn from day i+1 on. (This
-        # used to rebalance first and then earn day i with the new weights: a
-        # same-bar look-ahead that let the vol scaler "see" the day it was paid on.)
+        # Day i's return goes to what we held coming into day i. The decision below uses day i's
+        # close, so it can only earn from day i+1 on. Rebalancing first would be a same-bar
+        # look-ahead that lets the vol scaler see the day it gets paid on.
         out.iloc[i] += _held_return(held, dr.iloc[i])
 
         if d in rebal or not base:
             base = combined_weights(px.iloc[:i + 1], budgets)
 
-        # split the cash slice out; vol-scale only the risky part (live behavior)
+        # Vol-scale only the risky part, same as live.
         risky = {t: v for t, v in base.items() if t != CASH}
         s = vol_target_scaler(dr.iloc[max(0, i - 79):i + 1], risky, target_vol,
                               model=VOL_MODEL)
@@ -159,8 +150,6 @@ def run_champion_proxy(px: pd.DataFrame, target_vol: float = 0.20) -> pd.Series:
     return out[out.index >= pd.Timestamp("2011-07-01")]
 
 
-# ── Metrics, DSR ──────────────────────────────────────────────────────────────
-
 def metrics(ret: pd.Series) -> dict:
     ret = ret.dropna()
     if not len(ret):
@@ -195,7 +184,7 @@ def deflated_sharpe(ret: pd.Series, n_trials: int) -> float:
 
 def show(title: str, rows: dict[str, pd.Series], windows: list[str]):
     for win in windows:
-        print(f"-- since {win} " + "-" * 44)
+        print(f"Since {win}")
         print(f"  {'book':<22}{'CAGR':>8}{'Vol':>7}{'Sharpe':>8}{'MaxDD':>8}{'Worst d':>9}")
         for name, r in rows.items():
             rs = r[r.index >= pd.Timestamp(win)]
@@ -208,33 +197,33 @@ def show(title: str, rows: dict[str, pd.Series], windows: list[str]):
 def main():
     print("Loading Tiingo history...")
     px = load_data()
-    print(f"Range {px.index[0].date()} -> {px.index[-1].date()}\n")
+    print(f"Range {px.index[0].date()} to {px.index[-1].date()}\n")
 
     spy = px["SPY"].pct_change(fill_method=None)
 
     print("Running books (monthly sleeve rebal, daily vol scaling)...")
-    # The 4 configs we are honestly trying (K=4 for the DSR penalty):
+    # K=4 sets the DSR penalty. Only 3 configs are distinct now: with trend at 0 in SLEEVE_BUDGETS,
+    # A and C are the same book.
     no_trend = {"core": 0.45, "lowvol": 0.28, "ballast": 0.27}
     books = {
         "SPY (buy&hold)": spy,
         "Champion proxy 3x+VT20": run_champion_proxy(px),
-        "A: 4-sleeve VT16": run_book(px, SLEEVE_BUDGETS, 0.16),
-        "B: 4-sleeve VT20": run_book(px, SLEEVE_BUDGETS, 0.20),
+        "A: 3-sleeve VT16": run_book(px, SLEEVE_BUDGETS, 0.16),
+        "B: 3-sleeve VT20": run_book(px, SLEEVE_BUDGETS, 0.20),
         "C: no-trend VT16": run_book(px, no_trend, 0.16),
         "D: core-only VT16": run_book(px, {"core": 1.0}, 0.16),
     }
 
     show("scorecard", books, ["2007-07-01", "2011-07-01", "2018-01-01", "2022-01-01"])
 
-    print("=" * 60)
     print("DEFLATED SHARPE (K=4 configs tried, full window)")
-    for name in ["A: 4-sleeve VT16", "B: 4-sleeve VT20", "C: no-trend VT16", "D: core-only VT16"]:
+    for name in ["A: 3-sleeve VT16", "B: 3-sleeve VT20", "C: no-trend VT16", "D: core-only VT16"]:
         d = deflated_sharpe(books[name], 4)
         print(f"  {name:<22} DSR = {d:.1%}")
 
     print()
-    print("CORRELATION of daily returns (2011+, the diversification proof):")
-    a = books["A: 4-sleeve VT16"]
+    print("CORRELATION of daily returns (since 2011-07):")
+    a = books["A: 3-sleeve VT16"]
     cmp_keys = ["SPY (buy&hold)", "Champion proxy 3x+VT20"]
     for k in cmp_keys:
         joint = pd.concat([a, books[k]], axis=1).dropna()

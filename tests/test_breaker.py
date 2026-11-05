@@ -1,7 +1,7 @@
-"""Drawdown breaker: de-risk-only mode, broker-equity HWM, recovery, N-session reset.
+"""Drawdown breaker tests: de-risk-only mode, broker-equity HWM, recovery, N-session reset.
 
-Fully offline. No Alpaca client is ever built: broker functions are faked and the
-production breaker_state.csv / daily_log.csv / alerts.log are never touched.
+Offline. Broker functions are faked and the real breaker_state.csv, daily_log.csv and
+alerts.log are never touched.
 """
 from types import SimpleNamespace as NS
 
@@ -23,7 +23,7 @@ class _NoBroker:
 
 @pytest.fixture(autouse=True)
 def _isolate(tmp_path, monkeypatch):
-    """Point every file the breaker reads/writes at tmp, and drop email creds."""
+    """Points every file the breaker reads or writes at tmp, and drops email creds."""
     monkeypatch.setattr(risk, "ALERTS_LOG", tmp_path / "alerts.log")
     monkeypatch.setattr(risk, "BREAKER_STATE_FILE", tmp_path / "breaker_state.csv")
     monkeypatch.setattr(risk, "DAILY_LOG", tmp_path / "daily_log.csv")
@@ -38,7 +38,7 @@ def _day(i: int) -> str:
     return str((pd.Timestamp("2026-01-05") + pd.offsets.BDay(i)).date())
 
 
-# ── high-water mark + seeding ──────────────────────────────────────────────────
+# High-water mark and seeding
 
 def test_seed_uses_max_of_daily_log_and_broker_history(_isolate):
     pd.DataFrame({"portfolio_value": [1000.0, 1118.13, 950.0]}).to_csv(
@@ -74,7 +74,7 @@ def test_state_write_is_atomic_and_leaves_no_temp_files(_isolate):
     assert not [f for f in files if f.endswith(".tmp")]
 
 
-# ── trip / de-risk / recovery / reset ──────────────────────────────────────────
+# Trip, de-risk, recovery, reset
 
 def test_trip_enters_breaker_and_alerts(_isolate):
     risk.update_breaker(1000.0, today=_day(0))
@@ -121,7 +121,7 @@ def test_same_day_rerun_does_not_count_a_session():
     assert b["in_breaker"] and b["sessions"] == 1
 
 
-# ── bad-read guard ─────────────────────────────────────────────────────────────
+# Bad-read guard
 
 @pytest.mark.parametrize("bad", [0.0, -5.0, 0.30, float("nan")])
 def test_bad_read_neither_trips_nor_changes_state(bad, _isolate):
@@ -140,12 +140,10 @@ def test_bad_read_while_in_breaker_stays_in_breaker():
 
 
 def test_drawdown_no_longer_blocks_run_all_checks(asset_returns):
-    # The breaker is not an all-or-nothing gate any more; the other checks still are.
+    # The breaker isn't part of the all-or-nothing gate any more. The other checks still are.
     ok, fails = risk.run_all_checks(1.0, asset_returns[["SHV"]], {"SHV": 1.0})
     assert ok and fails == []
 
-
-# ── de-risk targets ────────────────────────────────────────────────────────────
 
 def test_derisk_targets_only_reduce_risk():
     current = {"TQQQ": 0.40, "SOXL": 0.20, "GLD": 0.10, "SHV": 0.25}   # 5% cash
@@ -163,7 +161,7 @@ def test_derisk_targets_only_reduce_risk():
     assert d["SHV"] == pytest.approx(0.50) and sum(d.values()) == pytest.approx(1.0)
 
 
-# ── broker: buy allow-list (fake client, no network) ───────────────────────────
+# Broker buy allow-list, with a fake client and no network
 
 class FakeTC:
     def __init__(self, equity, cash, positions):
@@ -203,7 +201,7 @@ def test_breaker_rebalance_places_only_sells_and_cash_buys(monkeypatch):
     current = {s: mv / 1000.0 for s, (mv, _) in tc.positions.items()}
     target = {"TQQQ": 0.30, "SOXL": 0.35, "UPRO": 0.20, "SHV": 0.15}
     d = risk.derisk_targets(current, target, "SHV")
-    # Even if prices drifted and a risky diff looked like a buy, the allow-list holds:
+    # Even if prices drifted and a risky diff looked like a buy, the allow-list holds.
     d["SOXL"] = 0.30
     broker.rebalance(d, buy_only={"SHV"})
     buys = [o for o in tc.orders if "BUY" in str(o.side).upper()]
@@ -221,7 +219,7 @@ def test_rebalance_without_allowlist_is_unchanged(monkeypatch):
     assert [o.symbol for o in tc.orders] == ["QQQ"]
 
 
-# ── main.py wiring: breaker day trades de-risk only, then exits 2 ──────────────
+# main.py wiring: a breaker day trades de-risk only, then exits 2
 
 def _stub_pipeline(monkeypatch, tmp_path, equity, positions, target):
     import alpha_sleeve
@@ -263,7 +261,7 @@ def test_main_breaker_day_derisks_and_exits_2(monkeypatch, _isolate):
     positions = {"TQQQ": 0.5, "SOXL": 0.2, "SHV": 0.3}
     target = {"TQQQ": 0.3, "SOXL": 0.4, "UPRO": 0.2, "SHV": 0.1}
     main, calls = _stub_pipeline(monkeypatch, _isolate, 650.0, positions, target)
-    assert main.main() == 2                     # HWM seeded $1000 -> $650 is -35%
+    assert main.main() == 2                     # HWM seeded at $1000, so $650 is -35%
     assert calls["buy_only"] == {"SHV"}
     w = calls["w"]
     assert w["TQQQ"] == pytest.approx(0.3) and w["SOXL"] == pytest.approx(0.2)

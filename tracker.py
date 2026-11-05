@@ -1,8 +1,6 @@
-"""One-command performance tracker: every bot vs SPY since its own launch.
+"""Prints each bot vs SPY since its launch and saves tracker.png. Read-only.
 
 Run: python3 tracker.py
-Prints the comparison table and saves tracker.png (cumulative curves, common window).
-Read-only — talks to the accounts but changes nothing.
 """
 import os
 import warnings
@@ -67,11 +65,11 @@ def main() -> None:
         spy_ret = w.iloc[-1] / w.iloc[0] - 1 if len(w) > 1 else 0.0
         print(f"{name:8}{str(d0.date()):>12}{len(eq):>6}{eq.iloc[0]:>11,.0f}{eq.iloc[-1]:>11,.0f}"
               f"{bot_ret*100:>+7.1f}%{spy_ret*100:>+7.1f}%{(bot_ret-spy_ret)*100:>+8.1f}%")
-    print("\nnotes: short windows are noise, not signal — judge over months, not weeks.")
-    print("       VOLBOT is market-neutral premium-selling; 'vs SPY' is not its benchmark")
-    print("       (judge it on income vs risk and correlation once it has trades).")
+    print("\nnotes: a few weeks of returns don't say much. Give it a few months before judging.")
+    print("       VOLBOT sold option premium and aimed to be market-neutral, so SPY isn't its benchmark.")
+    print("       Judge it on income vs risk and its correlation with the other books.")
 
-    # chart: common window, all curves + SPY rebased to 100
+    # Chart uses the window all the bots share, with every curve rebased to 100.
     if curves:
         start = max(c.index[0] for c in curves.values())
         fig, ax = plt.subplots(figsize=(10, 5))
@@ -84,7 +82,7 @@ def main() -> None:
         ax.legend(); ax.grid(True, alpha=0.3)
         fig.tight_layout()
         fig.savefig("tracker.png", dpi=130)
-        print("\nchart saved -> tracker.png")
+        print("\nchart saved to tracker.png")
 
 
 if __name__ == "__main__":
