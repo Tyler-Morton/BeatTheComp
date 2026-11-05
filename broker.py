@@ -1,8 +1,7 @@
-"""Everything that talks to Alpaca lives here.
+"""Alpaca account reads and orders for the champion and challenger. data.py pulls prices separately.
 
-PAPER ONLY. config.PAPER_TRADING_MODE is a hard guard: the trading client is
-always built with paper=True, and a non-paper ALPACA_BASE_URL makes it refuse to
-start rather than quietly trade real money.
+Paper only. config.PAPER_TRADING_MODE is a hard guard: the trading client is always built with
+paper=True, and a non-paper ALPACA_BASE_URL makes it refuse to start instead of trading real money.
 """
 
 import logging
@@ -21,11 +20,11 @@ MIN_ORDER_NOTIONAL = 1.0   # Alpaca won't take an order smaller than about a dol
 
 
 def _require_paper() -> bool:
-    """Hard PAPER guard. Returns True or raises — there is no live path.
+    """Hard paper guard. Returns True or raises, so there is no live path.
 
-    This used to derive paper/live from ALPACA_BASE_URL, so setting that env var
-    to the live endpoint would have moved real money with no code change. All
-    accounts are paper by standing rule; flipping that must be a code change.
+    Paper or live used to come from ALPACA_BASE_URL, so setting that env var to the live endpoint
+    would have moved real money with no code change. All accounts are paper, and changing that has
+    to be a code change.
     """
     from config import PAPER_TRADING_MODE
     base_url = os.getenv("ALPACA_BASE_URL", "https://paper-api.alpaca.markets")
@@ -61,10 +60,10 @@ def _data_client_get():
 
 
 def _is_fractionable(tc, symbol: str) -> bool:
-    """Return True if the asset can be bought in fractional shares.
+    """True if the asset can be bought in fractional shares. Cached per symbol.
 
-    Cached per-symbol. On any lookup error we assume True (the old behavior),
-    so a transient API hiccup can't silently block a whole-share fallback.
+    On a lookup error we assume True and don't cache it. The order then goes out as notional, Alpaca
+    rejects it if the asset isn't fractionable, and the next lookup tries again.
     """
     if symbol not in _fractionable_cache:
         try:
@@ -88,8 +87,6 @@ def _latest_price(symbol: str) -> float:
         return 0.0
 
 
-# ── Market hours ───────────────────────────────────────────────────────────────
-
 def is_market_open() -> bool:
     try:
         clock = _trading_client().get_clock()
@@ -99,10 +96,8 @@ def is_market_open() -> bool:
         return False
 
 
-# ── Portfolio state ────────────────────────────────────────────────────────────
-
 def get_portfolio_value() -> float:
-    """What the whole account is worth right now, in dollars."""
+    """Account equity in dollars. 0.0 if the API call fails."""
     try:
         account = _trading_client().get_account()
         return float(account.equity)
@@ -112,11 +107,7 @@ def get_portfolio_value() -> float:
 
 
 def get_current_positions() -> dict[str, float]:
-    """What we actually hold right now, as {symbol: share of the portfolio}.
-
-    Each weight is that position's market value divided by total equity, so the
-    numbers describe how the money is split up today — not what we're aiming for.
-    """
+    """What we hold right now, as {symbol: market value / total equity}."""
     try:
         positions = _trading_client().get_all_positions()
         account = _trading_client().get_account()
@@ -135,13 +126,8 @@ def get_current_positions() -> dict[str, float]:
 def get_live_snapshot() -> dict | None:
     """A fresh picture of the account for the dashboard, or None if we can't reach Alpaca.
 
-    {
-      "equity": float,            # current total portfolio value
-      "last_equity": float,       # equity at yesterday's close (for daily change)
-      "cash": float,
-      "positions": {symbol: {"market_value", "weight", "current_price",
-                             "unrealized_pl", "unrealized_plpc"}},
-    }
+    Keys: equity, last_equity (yesterday's close), cash, and positions, which maps each symbol
+    to market_value, weight, current_price, unrealized_pl and unrealized_plpc.
     """
     if not os.getenv("ALPACA_API_KEY") or not os.getenv("ALPACA_SECRET_KEY"):
         return None
@@ -173,17 +159,13 @@ def get_live_snapshot() -> dict | None:
         return None
 
 
-# ── Rebalancing ────────────────────────────────────────────────────────────────
-
 def rebalance(target_weights: dict[str, float],
               buy_only: set[str] | None = None) -> list[dict]:
-    """Buy and sell whatever it takes to move the account toward target_weights.
+    """Trade the account toward target_weights and return the orders placed.
 
-    buy_only: if given, buys are restricted to these symbols (sells unaffected).
-    The drawdown breaker passes {CASH_ASSET} so a de-risk day can never add risk,
-    even if prices moved between computing targets and placing orders.
-
-    Returns the list of orders we actually fired off.
+    buy_only limits buys to those symbols and doesn't affect sells. The drawdown breaker passes
+    {CASH_ASSET} so a de-risk day can't add risk, even if prices moved between computing targets
+    and placing orders.
     """
     from alpaca.trading.enums import OrderSide, TimeInForce
     from alpaca.trading.requests import MarketOrderRequest
@@ -198,10 +180,9 @@ def rebalance(target_weights: dict[str, float],
             logger.error("Portfolio value is zero — aborting rebalance")
             return []
 
-        # Calculate dollar targets
         target_dollars = {sym: w * portfolio_value for sym, w in target_weights.items()}
 
-        # Get current dollar values (+ share counts, for whole-share sells)
+        # Share counts are for whole-share sells.
         current_dollars: dict[str, float] = {}
         current_qty: dict[str, float] = {}
         try:
@@ -210,27 +191,23 @@ def rebalance(target_weights: dict[str, float],
                 current_dollars[p.symbol] = float(p.market_value)
                 current_qty[p.symbol] = float(p.qty)
         except Exception as exc:
-            # Do NOT carry on with an empty book: every diff would then be the
-            # full target, and the buy loop would re-buy positions we already
-            # hold (on margin, since buying power was the only cap).
+            # Don't carry on with an empty book. Every diff would be the full target and the
+            # buy loop would re-buy positions we already hold (on margin, since buying power
+            # was the only cap).
             logger.error("Could not fetch positions: %s — aborting rebalance", exc)
             return []
 
-        # Compute diffs once
         diffs = {
             sym: target_dollars.get(sym, 0.0) - current_dollars.get(sym, 0.0)
             for sym in set(target_dollars) | set(current_dollars)
         }
 
-        # ── Step 1: sell everything we need to sell, first ───────────────────
-        # We dump all the reductions before buying anything so the cash from
-        # those sells is available to fund the buys a moment later.
+        # Sell everything first so the cash is there to fund the buys.
         sell_syms = [s for s, d in diffs.items() if d < -MIN_ORDER_NOTIONAL]
-        # Dust sweep (C2): a held position with NO target is closed whatever its
-        # size. Sub-$1 lots never cleared the MIN_ORDER_NOTIONAL test above, so 28
-        # leftover lots ($14, 1.5% of equity, mostly ex-alpha-sleeve stocks) sat in
-        # the champion book indefinitely. close_position sells by qty, so the
-        # notional minimum does not apply (verify on paper: one dust lot first).
+        # Dust sweep: a held position with no target gets closed whatever its size. Sub-$1 lots
+        # never cleared the MIN_ORDER_NOTIONAL test above, so 28 leftover lots (1.5% of equity,
+        # mostly old alpha sleeve stocks) sat in the champion book indefinitely. close_position
+        # sells by qty, so the notional minimum doesn't apply.
         sell_syms += [s for s in current_dollars
                       if s not in sell_syms and target_dollars.get(s, 0.0) == 0.0
                       and current_qty.get(s, 0.0) > 0]
@@ -239,18 +216,16 @@ def rebalance(target_weights: dict[str, float],
             try:
                 current_val = current_dollars.get(sym, 0)
                 if target_dollars.get(sym, 0.0) < MIN_ORDER_NOTIONAL:
-                    # Full exit: close the whole position. The 99.5% notional cap
-                    # below exists for partial trims, but on an exit it left a
-                    # 0.5% dust position behind every time.
+                    # Full exit: close the whole position. The 99.5% notional cap below is for
+                    # partial trims. On an exit it left a 0.5% dust position behind every time.
                     order = tc.close_position(sym)
                     orders_placed.append({"symbol": sym, "side": "sell",
                                            "notional": round(current_val, 2),
                                            "order_id": str(order.id)})
                     logger.info("Order placed: CLOSE %s (~$%.2f)", sym, current_val)
                 elif _is_fractionable(tc, sym):
-                    # Only ever sell up to 99.5% of what the position is worth. If
-                    # we ask for 100% the rounding can land a hair over what we
-                    # actually hold, and Alpaca rejects it with "insufficient qty."
+                    # Only sell up to 99.5% of the position's value. At 100%, rounding can land
+                    # a hair over what we hold and Alpaca rejects it with "insufficient qty."
                     notional = min(abs(diff), current_val * 0.995)
                     if notional < MIN_ORDER_NOTIONAL: continue
                     req = MarketOrderRequest(
@@ -263,10 +238,10 @@ def rebalance(target_weights: dict[str, float],
                                            "order_id": str(order.id)})
                     logger.info("Order placed: SELL %s $%.2f", sym, notional)
                 else:
-                    # Non-fractionable (e.g. LASE/BJDX): Alpaca rejects notional
-                    # sells, so sell whole shares. On a full exit (target ~0),
-                    # dump every share — otherwise these become roach-motel
-                    # positions the bot can buy but never sell.
+                    # Non-fractionable (e.g. LASE, BJDX): Alpaca rejects notional sells, so trim
+                    # in whole shares. Otherwise these become positions the bot can buy but never
+                    # sell. Full exits take the close_position branch above, so the full-exit case
+                    # below never runs.
                     qty_held = current_qty.get(sym, 0)
                     price = current_val / qty_held if qty_held else 0.0
                     if target_dollars.get(sym, 0.0) < MIN_ORDER_NOTIONAL:
@@ -289,17 +264,15 @@ def rebalance(target_weights: dict[str, float],
             except Exception as exc:
                 logger.error("Sell failed for %s: %s", sym, exc)
 
-        # ── Step 2: wait for the sells themselves to finish ──────────────────
-        # Poll each sell ORDER until it reaches a final state, instead of
-        # guessing from buying power: the old "bp > 5× start" test fired on a
-        # partial settle and let the buys run against cash that hadn't landed,
-        # leaving part of the book unbought.
+        # Poll each sell order until it reaches a final state. The old buying-power test fired
+        # on a partial settle and let the buys run against cash that hadn't landed, leaving
+        # part of the book unbought.
         sell_ids = [o["order_id"] for o in orders_placed if o["side"] == "sell"]
         if sell_ids:
             import time as _time
             final = {"filled", "canceled", "expired", "rejected", "done_for_day"}
             pending = set(sell_ids)
-            for _ in range(45):  # 45 tries × 2s each = 90 seconds, then we give up waiting
+            for _ in range(45):  # 45 tries, 2s each, so we give up waiting after 90 seconds
                 for oid in list(pending):
                     try:
                         status = str(tc.get_order_by_id(oid).status).split(".")[-1].lower()
@@ -318,22 +291,21 @@ def rebalance(target_weights: dict[str, float],
                 logger.info("All %d sells final — buying power now $%.2f",
                             len(sell_ids), float(tc.get_account().buying_power))
 
-        # ── Step 3: do the buying, sized to the cash we really have ──────────
+        # Buy, sized to the cash we really have.
         buy_syms = [s for s, d in diffs.items() if d > MIN_ORDER_NOTIONAL]
         if buy_only is not None:
             blocked = sorted(s for s in buy_syms if s not in buy_only)
             if blocked:
                 logger.warning("BREAKER: blocked buys (de-risk only): %s", blocked)
             buy_syms = [s for s in buy_syms if s in buy_only]
-        buy_syms.sort(key=lambda s: -diffs[s])   # buy the biggest targets first, in case we run short
+        buy_syms.sort(key=lambda s: -diffs[s])   # biggest buys first, in case we run short
         for sym in buy_syms:
             diff = diffs[sym]
             try:
-                # Check the cash again before every single buy. If one order eats
-                # more than expected, the next one won't blindly overdraw and fail.
-                # min(cash, buying_power): buying_power alone includes MARGIN, so
-                # with sells still pending the buys borrowed instead of being
-                # "sized to the cash that has landed". Same rule as sweep_idle_cash.
+                # Check the cash before every buy, so if one order eats more than expected the
+                # next one doesn't overdraw and fail. Use min(cash, buying_power) because
+                # buying_power includes margin, and with sells still pending the buys borrowed
+                # instead of being sized to the cash that had landed. Same rule as sweep_idle_cash.
                 acct = tc.get_account()
                 bp = min(float(acct.cash), float(acct.buying_power))
                 if bp < MIN_ORDER_NOTIONAL:
@@ -343,7 +315,6 @@ def rebalance(target_weights: dict[str, float],
                 if notional < MIN_ORDER_NOTIONAL: continue
 
                 if _is_fractionable(tc, sym):
-                    # Fractional dollar order (most stocks)
                     req = MarketOrderRequest(
                         symbol=sym, notional=round(notional, 2),
                         side=OrderSide.BUY, time_in_force=TimeInForce.DAY,
@@ -354,9 +325,8 @@ def rebalance(target_weights: dict[str, float],
                                            "order_id": str(order.id)})
                     logger.info("Order placed: BUY %s $%.2f", sym, notional)
                 else:
-                    # Non-fractionable: must buy whole shares (e.g. ASTC).
-                    # Round target dollars down to the nearest share; skip if we
-                    # can't afford even one share.
+                    # Non-fractionable (e.g. ASTC): buy whole shares, rounded down. Skip if we
+                    # can't afford one.
                     price = _latest_price(sym)
                     if price <= 0:
                         logger.warning("No price for non-fractionable %s — skipping", sym)
@@ -387,11 +357,9 @@ def rebalance(target_weights: dict[str, float],
 
 
 def sweep_idle_cash() -> dict | None:
-    """Park leftover uninvested cash in the cash ETF (SHV) so it earns bill yield.
+    """Move leftover cash above a small buffer into the cash ETF (SHV) so it earns bill yield.
 
-    Runs after trading settles: whatever cash is still sitting idle beyond a small
-    buffer gets moved into CASH_ASSET instead of earning nothing. Returns the order
-    dict, or None if there was nothing worth sweeping (or the sweep is disabled).
+    Returns the order dict, or None if there's nothing worth sweeping or the sweep is off.
     """
     from config import CASH_ASSET, CASH_SWEEP_BUFFER, CASH_SWEEP_ENABLED
     if not CASH_SWEEP_ENABLED:
@@ -416,10 +384,8 @@ def sweep_idle_cash() -> dict | None:
         return None
 
 
-# ── Account history ────────────────────────────────────────────────────────────
-
 def get_account_history(days: int = 365) -> pd.DataFrame:
-    """The account's value over time, as a table of [timestamp, equity] — i.e. the equity curve."""
+    """The equity curve, as a table of [timestamp, equity]."""
     try:
         from alpaca.trading.requests import GetPortfolioHistoryRequest
         req = GetPortfolioHistoryRequest(period=f"{days}D", timeframe="1D")

@@ -1,17 +1,8 @@
-"""Challenger bot: daily pipeline for the SECOND Alpaca paper account.
+"""Challenger bot: daily pipeline for the second Alpaca paper account.
 
-A diversified 3-sleeve book (ramped leveraged core / low-vol equity / ballast)
-under a 16% vol target. Validated in challenger/backtest.py before it was
-allowed to trade (full-cycle Sharpe ~0.65 vs SPY 0.39, max DD -24% vs -55%,
-DSR ~100% across K=4 configs).
-
-SAFETY: this process swaps the Alpaca env vars to the CHALLENGER keys before
-broker.py is ever imported, and aborts hard if those keys are missing. It
-cannot fall back to the champion's account. It shares code with the live bot
-(broker, risk_overlay) but no state: its own logs, its own price cache.
-
-Run:        python3 challenger/main.py
-Dry run:    python3 challenger/main.py --dry-run     (no orders, prints targets)
+Three sleeves (ramped leveraged core, low-vol equity, ballast) with a 16% vol target.
+Backtest from 2007: Sharpe about 0.63 vs SPY 0.39, max drawdown -24% vs -55%. DSR is about 1.0 at
+K=4, but SPY's is 1.0 too (verdict.json), so the DSR alone shows no edge.
 """
 
 from __future__ import annotations
@@ -30,28 +21,28 @@ sys.path.insert(0, str(HERE))
 from dotenv import load_dotenv
 load_dotenv(ROOT / ".env")
 
-# ── Point this process at the CHALLENGER account, hard-fail if keys missing ──
-# os.environ[...] raises KeyError if the challenger keys aren't set, so this
-# can never silently run against the champion's account.
+# Point this process at the challenger account before broker.py is imported. os.environ[...]
+# raises KeyError if the keys aren't set, so it can't fall back to the champion's account.
+# It shares code with the champion (broker, risk_overlay) but no state: own logs, own price cache.
 os.environ["ALPACA_API_KEY"] = os.environ["CHALLENGER_ALPACA_API_KEY"]
 os.environ["ALPACA_SECRET_KEY"] = os.environ["CHALLENGER_ALPACA_SECRET_KEY"]
 
 import numpy as np
 import pandas as pd
 
-import broker                                   # imported AFTER the key swap
+import broker                                   # imported after the key swap
 from risk_overlay import vol_target_scaler, portfolio_vol
 from sleeves import combined_weights, ALL_TICKERS, TARGET_VOL, CASH, VOL_MODEL
 
 DAILY_LOG = HERE / "daily_log.csv"
-BASE_STATE = HERE / "base_state.json"   # sleeve weights frozen between month-ends (C2)
+BASE_STATE = HERE / "base_state.json"   # sleeve weights frozen between month-ends
 PRICE_CACHE = HERE / "live_prices.parquet"
-MIN_WEIGHT = 0.005       # drop dust positions below 0.5%
+MIN_WEIGHT = 0.005       # positions below 0.5% go to cash
 DRIFT = 0.02             # skip trading if nothing drifted more than 2%
 
 
 def fetch_prices() -> pd.DataFrame:
-    """~2 years of daily closes from Tiingo (own cache, never the champion's)."""
+    """About 2 years of daily closes from Tiingo. Own cache, never the champion's."""
     if PRICE_CACHE.exists():
         px = pd.read_parquet(PRICE_CACHE)
         age_days = (pd.Timestamp.now() - px.index[-1]).days
@@ -93,19 +84,17 @@ def already_ran_today() -> bool:
 
 
 def monthly_base(px: pd.DataFrame, today=None) -> dict:
-    """Sleeve weights, recomputed ONCE per month, as challenger/backtest.py does.
+    """Sleeve weights, recomputed once per month, as challenger/backtest.py does.
 
-    The backtest recomputes combined_weights() only on month-end (BME) dates and
-    vol-scales daily. Live used to recompute the sleeves every morning, which made
-    the core QQQ/QLD ramp and the ballast inverse-vol split trade on daily noise:
-    live turnover 12.5x/yr vs 2.9x/yr tested (C2, 2026-10-13). Re-running the
-    backtest with daily recompute: CAGR 12.1% -> 11.4% at 3bp cost.
-    Freeze rule: reuse the stored base while the RUN date is in the same calendar
-    month as when it was computed; the first run of a new month therefore uses
-    data through the prior month's last close, i.e. the BME close.
-    (Keying on the last PRICE date, as this first did, kept last month's base on
-    the first trading day of every month — that morning's newest close is still
-    the prior month's — so each recompute landed one trading day late.)
+    The backtest recomputes combined_weights() only on month-end dates and vol-scales daily.
+    Live used to recompute every morning, which made the QQQ/QLD ramp and the ballast split
+    trade on daily noise: turnover 12.5x/yr vs 2.9x/yr tested. Re-running the backtest with
+    daily recompute took CAGR from 12.1% to 11.4% at 3bp cost.
+
+    The stored base is reused while the run date is in the month it was computed, so the first
+    run of a new month uses data through the prior month's last close. Keying on the last price
+    date made each recompute land one trading day late, because the newest close on the first
+    trading day of a month still belongs to the prior month.
     """
     month = (today or datetime.now().date()).strftime("%Y-%m")
     if BASE_STATE.exists():
@@ -116,7 +105,7 @@ def monthly_base(px: pd.DataFrame, today=None) -> dict:
         except Exception:
             pass
     base = combined_weights(px)
-    tmp = BASE_STATE.with_suffix(".tmp")       # atomic: a killed run can't leave half a file
+    tmp = BASE_STATE.with_suffix(".tmp")       # atomic, so a killed run can't leave half a file
     tmp.write_text(json.dumps({"month": month, "computed_on": str(px.index[-1].date()),
                                "base": base}, indent=1))
     os.replace(tmp, BASE_STATE)
@@ -125,11 +114,11 @@ def monthly_base(px: pd.DataFrame, today=None) -> dict:
 
 
 def target_weights(base: dict, s: float) -> dict:
-    """Vol-scale the risky part of `base` by s; the remainder, and any crumb below
-    MIN_WEIGHT, goes to CASH so the targets always sum to 1.0.
+    """Vol-scale the risky part of `base` by s. The remainder, and any crumb below MIN_WEIGHT,
+    goes to CASH so the targets always sum to 1.0.
 
-    Crumbs used to be DROPPED instead of folded into cash. The challenger never
-    sweeps idle cash, so that slice sat uninvested while the backtest held it.
+    Crumbs go to cash because the challenger never sweeps idle cash. If they were dropped, that
+    slice would sit uninvested while the backtest held it.
     """
     risky = {t: v for t, v in base.items() if t != CASH}
     w = {t: v * s for t, v in risky.items()}
@@ -163,7 +152,7 @@ def main():
             print("Market is closed; exiting cleanly. Nothing traded.")
             return
 
-    # ── Signals -> sleeve weights -> vol-target scaling (same code as backtest) ──
+    # Sleeve weights, then vol-target scaling. Same code as the backtest.
     px = fetch_prices()
     print(f"Prices: {len(px)} days, through {px.index[-1].date()}")
     base = combined_weights(px) if dry else monthly_base(px)
@@ -183,7 +172,6 @@ def main():
         print("\nDry run complete - no orders placed.")
         return
 
-    # ── Skip-trade check: only rebalance if something actually drifted ──────────
     current = broker.get_current_positions()
     drift = max((abs(weights.get(t, 0) - current.get(t, 0))
                  for t in set(weights) | set(current)), default=1.0)

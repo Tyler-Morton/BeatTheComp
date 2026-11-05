@@ -1,23 +1,7 @@
-"""Challenger strategy: a 4-sleeve diversified book under one vol budget.
+"""Challenger strategy: a diversified book of three active sleeves under one vol budget.
 
-Pure logic — no broker imports, no trading. Both the backtest and the live
-pipeline call these same functions, so what we test is what we trade.
-
-Sleeves (budgets sum to 1.0 before vol targeting):
-  CORE    35%  Trend-ramped leveraged tech (QQQ/QLD ramp, IEF cushion). This is
-               the validated "Gradual" engine from the strategy lab: effective
-               leverage ramps 0 -> 1.5x with QQQ's distance above/below its
-               200-day average, instead of flipping all-or-nothing.
-  TREND   25%  Cross-asset time-series momentum (SPY, EFA, TLT, GLD, DBC).
-               Each asset above its 10-month average gets an equal slice;
-               anything below parks its slice in cash. The crisis-alpha sleeve.
-  LOWVOL  20%  Defensive equity (XLP/XLU/XLV equal-weight). The low-volatility
-               anomaly: similar return, lower risk, always on.
-  BALLAST 20%  TLT + GLD, inverse-vol weighted. The zig when stocks zag.
-
-After the sleeves are combined, the live bot passes the result through the SAME
-risk_overlay.apply_overlay() the champion uses, scaling the whole book toward
-TARGET_VOL and parking the remainder in SHV.
+No broker imports and no trading. The backtest and live pipeline call these same functions, so what
+we test is what we trade. Budgets before vol targeting: core 45%, low-vol 28%, ballast 27%, trend 0%.
 """
 
 from __future__ import annotations
@@ -27,21 +11,23 @@ import pandas as pd
 
 TD = 252
 MA_LONG = 200          # core engine trend filter
-MA_TSMOM = 210         # ~10 months, the classic time-series-momentum filter
+MA_TSMOM = 210         # about 10 months, the classic time-series momentum filter
 BASE_LEV = 1.5         # core engine max effective leverage
-RAMP_BAND = 0.10       # core ramps 0->full over QQQ being -10%..+10% vs its MA
+RAMP_BAND = 0.10       # core ramps from 0 to full as QQQ goes from -10% to +10% vs its MA
 
-TARGET_VOL = 0.16      # the whole-book vol budget (annualized)
-# Pinned, not inherited: vol_target_scaler otherwise reads the CHAMPION's
-# config.OVERLAY_VOL_MODEL, so a champion estimator change would leak into the A/B.
+# After combining, challenger/main.py scales the book toward TARGET_VOL with
+# risk_overlay.vol_target_scaler, the scaler the champion's overlay uses, and its target_weights
+# parks the rest in SHV.
+TARGET_VOL = 0.16      # whole-book vol budget, annualized
+# Pinned because vol_target_scaler otherwise reads the champion's config.OVERLAY_VOL_MODEL,
+# so a champion estimator change would leak into the A/B.
 VOL_MODEL = "trailing"
 CASH = "SHV"
 
-# Backtest verdict (2026-06-09, challenger/backtest.py, 2007-2026 Tiingo data):
-# the TSMOM trend sleeve FAILED the simpler-beats-it test (the no-trend book had
-# higher Sharpe AND CAGR in nearly every window), so its budget is 0 and the
-# book ships with three sleeves. Trend stays on the bench for a better
-# implementation later; the code remains so it can be re-tested.
+# The trend sleeve is benched: its budget is 0 and the book runs on three sleeves. It was benched
+# after a simpler-beats-it backtest, which challenger/backtest.py can't re-run as written, because
+# with trend at 0 its A and C books are the same. The code stays so a better version can be
+# re-tested.
 SLEEVE_BUDGETS = {"core": 0.45, "trend": 0.0, "lowvol": 0.28, "ballast": 0.27}
 
 CORE_ASSETS = ["QQQ", "QLD", "IEF"]
@@ -53,10 +39,14 @@ ALL_TICKERS = sorted(set(CORE_ASSETS + TREND_ASSETS + LOWVOL_ASSETS
                          + BALLAST_ASSETS + [CASH]))
 
 
-# ── Sleeve builders (each returns weights summing to its budget) ──────────────
+# Sleeve builders. Each returns weights summing to its budget.
 
 def core_sleeve(px: pd.DataFrame, budget: float) -> dict[str, float]:
-    """Gradual leverage ramp: effective QQQ exposure = BASE_LEV * ramp(z)."""
+    """Trend-ramped leveraged tech, the validated "Gradual" engine from the strategy lab.
+
+    Effective exposure ramps from 0 to BASE_LEV with QQQ's distance from its 200-day average,
+    instead of flipping all-or-nothing. IEF is the cushion.
+    """
     qqq = px["QQQ"]
     ma = qqq.rolling(MA_LONG).mean().iloc[-1]
     if not np.isfinite(ma) or ma <= 0:
@@ -81,7 +71,10 @@ def core_sleeve(px: pd.DataFrame, budget: float) -> dict[str, float]:
 
 
 def trend_sleeve(px: pd.DataFrame, budget: float) -> dict[str, float]:
-    """Equal-weight the assets above their 10-month average; rest to cash."""
+    """Cross-asset time-series momentum, meant as the crisis-alpha sleeve.
+
+    Each asset above its 10-month average gets an equal slice. The rest parks in cash.
+    """
     winners = []
     for t in TREND_ASSETS:
         if t not in px.columns:
@@ -100,6 +93,7 @@ def trend_sleeve(px: pd.DataFrame, budget: float) -> dict[str, float]:
 
 
 def lowvol_sleeve(px: pd.DataFrame, budget: float) -> dict[str, float]:
+    """Defensive equity, equal-weight and always on. Low-vol anomaly: similar return, lower risk."""
     cols = [t for t in LOWVOL_ASSETS if t in px.columns]
     if not cols:
         return {CASH: budget}
@@ -108,6 +102,7 @@ def lowvol_sleeve(px: pd.DataFrame, budget: float) -> dict[str, float]:
 
 
 def ballast_sleeve(px: pd.DataFrame, budget: float) -> dict[str, float]:
+    """TLT and GLD, inverse-vol weighted. Meant to hold up when stocks fall."""
     cols = [t for t in BALLAST_ASSETS if t in px.columns]
     if not cols:
         return {CASH: budget}
@@ -123,7 +118,7 @@ def ballast_sleeve(px: pd.DataFrame, budget: float) -> dict[str, float]:
 
 def combined_weights(px: pd.DataFrame,
                      budgets: dict[str, float] | None = None) -> dict[str, float]:
-    """All four sleeves merged into one weights dict (sums to ~1.0, incl. cash)."""
+    """Merge the sleeves into one weights dict. Sums to about 1.0, including cash."""
     b = budgets or SLEEVE_BUDGETS
     builders = {"core": core_sleeve, "trend": trend_sleeve,
                 "lowvol": lowvol_sleeve, "ballast": ballast_sleeve}

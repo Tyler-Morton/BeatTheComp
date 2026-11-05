@@ -1,15 +1,8 @@
-"""Meta-book SHADOW allocator — measurement + intended ERC weights. TRADES NOTHING.
+"""Meta-book shadow allocator. It only writes a log and trades nothing.
 
-Daily(ish) run:
-  1. Pull all three sleeves' live equity curves (champion / challenger / volbot accounts).
-  2. Per sleeve: realized vol, Sharpe, max drawdown; pairwise correlations.
-  3. Compute the ERC (equal-risk-contribution) weights the allocator WOULD set,
-     bounded [10%, 70%] per sleeve (validated in research/metabook_backtest.py:
-     ERC beat equal-weight 0.82 vs 0.65 Sharpe with smaller drawdown).
-  4. Append everything to metabook/shadow_log.csv — the live shadow record.
-
-This is Layer 1+2 of research/metabook_spec.md. It only WRITES A LOG. The dials
-(each sleeve's risk knob) stay untouched until the shadow record proves value.
+Run it by hand, since no workflow schedules it. It logs each sleeve's equity, vol, Sharpe and
+correlations, plus the equal-risk-contribution (ERC) weights it would set. Risk knobs stay put
+until this proves value.
 """
 import os
 from datetime import date
@@ -26,6 +19,8 @@ load_dotenv(BASE.parent / ".env")
 
 TRADING_DAYS = 252
 RF_D = 0.045 / TRADING_DAYS
+# Per-sleeve weight bounds. In research/metabook_backtest.py, ERC beat equal weight 0.82 vs 0.65
+# Sharpe with a smaller drawdown.
 W_LO, W_HI = 0.10, 0.70
 COV_WIN, MIN_ROWS = 90, 20
 LOG = BASE / "shadow_log.csv"

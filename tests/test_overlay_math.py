@@ -32,7 +32,7 @@ def test_apply_overlay_preserves_total_and_parks_cash():
 
 
 def _har_reference(r: pd.DataFrame, w: dict, win=500):
-    """Textbook one-step HAR: fit RV_{t+1} on (RV_t, RV5_t, RV22_t), predict from the LAST row."""
+    """Textbook one-step HAR: fit RV_{t+1} on (RV_t, RV5_t, RV22_t), predict from the last row."""
     pr = r[list(w)].values @ np.array(list(w.values())) / sum(w.values())
     rv = pd.Series(pr ** 2)
     X = pd.concat([rv, rv.rolling(5).mean(), rv.rolling(22).mean()], axis=1)
@@ -40,7 +40,7 @@ def _har_reference(r: pd.DataFrame, w: dict, win=500):
     fit = pd.concat([X, y.rename("y")], axis=1).dropna().tail(win)
     A = np.column_stack([np.ones(len(fit)), fit.iloc[:, :3].values])
     beta = np.linalg.lstsq(A, fit["y"].values, rcond=None)[0]
-    x_T = X.iloc[-1].values                          # today's features — not yesterday's
+    x_T = X.iloc[-1].values                          # today's features, not yesterday's
     return float(np.sqrt((np.r_[1.0, x_T] @ beta) * 252))
 
 

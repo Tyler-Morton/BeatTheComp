@@ -10,7 +10,7 @@ class FakeTC:
     def __init__(self, equity=1000.0, cash=0.0, bp=None, positions=None, fail_positions=False):
         self.equity, self.cash = equity, cash
         self.bp = bp if bp is not None else cash
-        self.positions = positions or {}          # sym -> (market_value, qty)
+        self.positions = positions or {}          # sym: (market_value, qty)
         self.fail_positions = fail_positions
         self.orders, self.closed = [], []
 

@@ -1,18 +1,7 @@
-"""Risk overlay: vol-targeting (+ optional ML throttle) on top of the bot's weights.
+"""Risk overlay: scales the book toward a target vol and parks the rest in cash (SHV).
 
-This sits AFTER the optimizer/alpha-sleeve produce target weights and BEFORE the
-trade. It scales the whole book up/down toward a target volatility — parking the
-unused portion in cash (SHV) — so a high-octane (3x) book can't run at 50-90%
-volatility into a crash. Validated in backtests to cut a 3x book's vol ~53%→20%
-and max drawdown ~-71%→-24% while keeping returns above SPY.
-
-Two independent scalers, multiplied together (each in [0,1]):
-  • vol-target  — target_vol / recent realized portfolio vol (the workhorse)
-  • ML throttle — optional; a crash-probability model trims further when risk is
-    high. Fully graceful: ANY failure (missing lib, short data, fit error) returns
-    a neutral 1.0 so the bot keeps running. Off by default until proven live.
-
-Nothing here trades. It only transforms a weights dict.
+Runs after the weights are built and before the trade. Nothing here trades. In verdict.json the
+champion with this overlay has 18.7% vol and a -28% max drawdown, but trails SPY on CAGR and Sharpe.
 """
 
 from __future__ import annotations
@@ -28,8 +17,6 @@ TRADING_DAYS = 252
 RISK_FREE_RATE = 0.045
 HAR_MIN_ROWS = 500 + 30          # har_forecast's default har_window + 30
 
-
-# ── Vol targeting (the workhorse) ────────────────────────────────────────────
 
 def portfolio_vol(returns: pd.DataFrame, weights: dict[str, float],
                   window: int = 40) -> float:
@@ -56,13 +43,12 @@ def har_forecast(returns: pd.DataFrame, weights: dict[str, float],
 
         RV_{t+1} = b0 + bd*RV_daily + bw*RV_weekly + bm*RV_monthly
 
-    on the CURRENT portfolio's daily returns, rolling OLS, causal throughout.
-    The 1/5/22 horizons are canonical — do NOT search them. Three coefficients
-    is the whole point: it captures vol clustering and multi-horizon persistence
-    without the fragility that makes fancier models fail out of sample.
+    Rolling OLS on the current portfolio's daily returns, causal throughout. The 1/5/22 horizons
+    are the standard ones, so don't search them. Three coefficients capture vol clustering and
+    multi-horizon persistence without the fragility that makes fancier models fail out of sample.
 
-    Returns 0.0 (not a guess) when there isn't enough history, so the caller
-    falls back to the trailing estimator rather than to something invented.
+    Returns 0.0 when it can't produce a number. vol_target_scaler raises if that's from too little
+    history and uses the trailing estimator otherwise.
     """
     cols = [t for t in weights if t in returns.columns and abs(weights[t]) > 1e-9]
     if not cols:
@@ -71,11 +57,9 @@ def har_forecast(returns: pd.DataFrame, weights: dict[str, float],
     if w.sum() <= 0:
         return 0.0
     w = w / w.sum()
-    # errstate: Apple's Accelerate BLAS raises a spurious "divide by zero
-    # encountered in matmul" on clean finite float64 input. Verified: inputs
-    # finite, output finite, warning bogus. Suppressed HERE ONLY, and paired
-    # with an explicit finiteness check below — never suppress a warning without
-    # replacing it with a real test.
+    # Apple's Accelerate BLAS raises a false "divide by zero encountered in matmul" on clean
+    # finite float64 input. Checked: inputs and output are finite. Suppressed here only, and
+    # paired with a real finiteness check below.
     with np.errstate(all="ignore"):
         pr = returns[cols].fillna(0.0).values @ w
     if not np.isfinite(pr).all():
@@ -84,9 +68,9 @@ def har_forecast(returns: pd.DataFrame, weights: dict[str, float],
         return 0.0
     rv = pd.Series(pr ** 2)
     feats = pd.concat([rv, rv.rolling(5).mean(), rv.rolling(22).mean()], axis=1).dropna()
-    # Forecast from TODAY's features. Fitting needs a known next-day RV, so the
-    # newest row is dropped from the fit — the old code then forecast from the
-    # filtered frame's last row, i.e. one day stale (found by EXP-019).
+    # Forecast from today's features. Fitting needs a known next-day RV, so the newest row is
+    # left out of the fit. The old code forecast from the filtered frame's last row, which was
+    # one day stale (found by EXP-019).
     x_today = feats.iloc[-1].values
     y = rv.shift(-1).reindex(feats.index)
     ok = y.notna()
@@ -107,12 +91,11 @@ def har_forecast(returns: pd.DataFrame, weights: dict[str, float],
 def vol_target_scaler(returns: pd.DataFrame, weights: dict[str, float],
                       target_vol: float = 0.20, window: int = 40,
                       model: str | None = None) -> float:
-    """Scale factor in [0,1]: target_vol / estimated_vol, capped at 1 (never lever up).
+    """Scale factor in [0,1]: target_vol / estimated_vol, capped at 1 so we never lever up.
 
-    `model` selects how vol is ESTIMATED — "trailing" (40d realized) or "har"
-    (forecast). Defaults to config.OVERLAY_VOL_MODEL. HAR falls back to trailing
-    whenever it can't produce a number, so a thin history degrades to today's
-    behaviour instead of to something arbitrary.
+    model picks how vol is estimated: "trailing" (40-day realized) or "har" (forecast), with
+    config.OVERLAY_VOL_MODEL as the default. HAR raises with under HAR_MIN_ROWS rows of returns.
+    With enough rows, it falls back to trailing if it still can't produce a number.
     """
     if model is None:
         try:
@@ -125,10 +108,10 @@ def vol_target_scaler(returns: pd.DataFrame, weights: dict[str, float],
     if model == "har":
         pv = har_forecast(returns, weights)
         if pv <= 1e-6 and len(returns) < HAR_MIN_ROWS:
-            # LOUD, not a silent fallback. HAR needs har_window+30 = 530 rows and
-            # main.py hands the overlay ~235 (fetch_prices lookback 252 calendar-
-            # padded), so "har" in production used to be trailing vol under
-            # another name. Selecting it now fails until the history is there.
+            # Fail loudly instead of falling back silently. HAR needs har_window+30 = 530 rows
+            # and main.py passes about 235 (fetch_prices lookback 252, padded in calendar days),
+            # so "har" in production used to be trailing vol under another name. Selecting it
+            # now fails until the history is there.
             raise RuntimeError(
                 f"OVERLAY_VOL_MODEL='har' needs >= {HAR_MIN_ROWS} rows of returns, "
                 f"got {len(returns)}; it would silently run as trailing vol")
@@ -139,7 +122,8 @@ def vol_target_scaler(returns: pd.DataFrame, weights: dict[str, float],
     return float(np.clip(target_vol / pv, 0.0, 1.0))
 
 
-# ── ML throttle (optional, fully graceful) ───────────────────────────────────
+# Optional ML throttle. A crash-probability model trims further when risk is high. Off by
+# default until proven live.
 
 def _ml_features(prices: pd.DataFrame) -> pd.DataFrame:
     spy, qqq = prices["SPY"], prices["QQQ"]
@@ -159,10 +143,10 @@ def _ml_features(prices: pd.DataFrame) -> pd.DataFrame:
 
 def ml_crash_multiplier(prices: pd.DataFrame | None = None, horizon: int = 10,
                         dd_thresh: float = 0.05) -> tuple[float, float | None]:
-    """Train on history (purged) → predict today's P(drawdown) → leverage multiplier.
+    """Train on purged history, predict today's P(drawdown), and turn it into a leverage multiplier.
 
-    Returns (multiplier in [0.4, 1.1], crash_prob or None). On ANY problem returns
-    (1.0, None) — a neutral no-op — so this can never break a live run.
+    Returns (multiplier in [0.4, 1.1], crash_prob or None). Any problem returns (1.0, None), a
+    neutral no-op, so this can't break a live run.
     """
     try:
         from sklearn.ensemble import HistGradientBoostingClassifier
@@ -178,7 +162,7 @@ def ml_crash_multiplier(prices: pd.DataFrame | None = None, horizon: int = 10,
 
         f = _ml_features(prices)
         spy = prices["SPY"].values
-        # label: does SPY fall >dd_thresh at any point in the next `horizon` days?
+        # label: does SPY fall more than dd_thresh at any point in the next `horizon` days?
         label = np.full(len(spy), np.nan)
         for i in range(len(spy) - 1):
             end = min(i + 1 + horizon, len(spy))
@@ -189,7 +173,7 @@ def ml_crash_multiplier(prices: pd.DataFrame | None = None, horizon: int = 10,
         X = f.values
         ok = np.isfinite(X).all(axis=1)
         tr = ok & np.isfinite(label)
-        tr[len(spy) - horizon:] = False     # purge: last horizon rows have peeking labels
+        tr[len(spy) - horizon:] = False     # purge: the last horizon rows have peeking labels
         if tr.sum() < 300 or not (0 < label[tr].sum() < tr.sum()):
             return 1.0, None
 
@@ -209,18 +193,17 @@ def ml_crash_multiplier(prices: pd.DataFrame | None = None, horizon: int = 10,
         return 1.0, None
 
 
-# ── The one function main.py calls ───────────────────────────────────────────
-
 def apply_overlay(target_weights: dict[str, float], asset_returns: pd.DataFrame,
                   target_vol: float = 0.20, use_ml: bool = False,
                   cash_asset: str = "SHV", ml_prices: pd.DataFrame | None = None,
                   shadow_ml: bool = False,
                   ) -> tuple[dict[str, float], dict]:
-    """Scale `target_weights` toward `target_vol`; park the rest in `cash_asset`.
+    """Scale target_weights toward target_vol and park the rest in cash_asset.
 
-    Returns (new_weights, info). new_weights sum to ~1.0 (cash makes up the slack).
-    Pure transform — never trades. `shadow_ml` computes the crash model's verdict
-    for LOGGING only (multiplier is not applied) — the trust-building mode.
+    Two independent scalers multiply together: vol-target in [0,1] and the ML throttle in [0.4,1.1].
+    The product is clipped to [0,1].
+    Returns (new_weights, info), and new_weights sum to about 1.0 with cash making up the slack.
+    shadow_ml computes the crash model's answer for logging only, to build trust before enabling it.
     """
     base_sum = sum(target_weights.values())
     s_vt = vol_target_scaler(asset_returns, target_weights, target_vol)

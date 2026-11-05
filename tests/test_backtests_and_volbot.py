@@ -12,8 +12,8 @@ ROOT = Path(__file__).resolve().parent.parent
 
 
 def test_backtest_breaker_does_not_erase_losses(monkeypatch):
-    """The breaker used to drop any day that would close >30% under the high, so
-    equity could never fall below 0.70x ATH. Live, it only blocks rebalancing."""
+    """The breaker used to drop any day that would close over 30% under the high, so
+    equity could never fall below 0.70x ATH. In the backtest it only blocks rebalancing."""
     import backtest as bt
     n = 300
     idx = pd.bdate_range("2020-01-01", periods=n)
@@ -26,8 +26,8 @@ def test_backtest_breaker_does_not_erase_losses(monkeypatch):
 
 
 def test_backtest_no_bfill_zero_variance(monkeypatch):
-    """Assets before inception must stay NaN (and out of the optimizer), not a
-    backfilled flat line with zero variance."""
+    """Assets must stay NaN before they launch, and out of the optimizer. Backfilling
+    would give them a flat line with zero variance."""
     import backtest as bt
     seen = []
     n = 120
@@ -44,7 +44,7 @@ def test_backtest_no_bfill_zero_variance(monkeypatch):
     assert all(h for h in seen)
 
 
-# ── volbot (retired, but its ledger math must stay right for the record) ──────
+# volbot is retired, but its ledger math still has to be right for the record.
 
 @pytest.fixture
 def volbot(monkeypatch, tmp_path):

@@ -1,10 +1,6 @@
-"""Deciding how much of each ETF to hold — the math brain of the bot.
-
-There are three ways it can carve up the money:
-  - MAX_SHARPE:     classic optimizer, chases the best return-per-unit-of-risk
-  - HRP:            spreads risk evenly by grouping similar assets together
-  - HRP_MOMENTUM:   HRP, but then leans harder into whatever's been winning lately
-Whichever one main.py picks, this file turns it into an actual set of weights.
+"""Decides how much of each ETF to hold. Three strategies: MAX_SHARPE chases the best return per
+unit of risk, HRP spreads risk evenly by grouping similar assets, and HRP_MOMENTUM is HRP leaning
+harder into recent winners.
 """
 
 import logging
@@ -32,8 +28,6 @@ _LEVERAGED_ETFS = {"TQQQ", "UPRO", "SOXL", "TECL"}    # 3x leveraged growth
 _EQUITY_ETFS = {"QQQ", "AVUV", "VGT", "IWM", "BITO", "VEA", "XLC", "MTUM"} | _LEVERAGED_ETFS
 
 
-# ── Bound helpers ──────────────────────────────────────────────────────────────
-
 def _base_bounds(n: int) -> list[tuple[float, float]]:
     return [(MIN_SINGLE_WEIGHT, MAX_SINGLE_WEIGHT)] * n
 
@@ -41,29 +35,28 @@ def _base_bounds(n: int) -> list[tuple[float, float]]:
 def _apply_regime_bounds(
     tickers: list[str], bounds: list[tuple], regime: str
 ) -> list[tuple]:
-    """Tighten or loosen the per-asset limits based on the market mood.
+    """Tighten or loosen the per-asset limits based on the regime.
 
-    Worth saying again: this is the aggressive paper-trading config, not something
-    you'd run with real money.
-      RISK_ON:  go for it. Basically no defense — SHV/TLT near zero, leverage off the leash.
-      CHOPPY:   ease off. Cap the leveraged ETFs at 10% and keep some GLD/TLT around for ballast.
-      RISK_OFF: hunker down. Leveraged ETFs out, and force at least 30% SHV and 20% TLT.
+    This is the aggressive paper-trading config. Don't run it with real money.
+      RISK_ON: basically no defense. SHV and TLT near zero, leverage unrestricted.
+      CHOPPY: ease off. Cap the leveraged ETFs at 3% and keep some GLD and TLT as ballast.
+      RISK_OFF: cap the leveraged ETFs at 2%, and force at least 30% SHV and 20% TLT.
     """
     result = list(bounds)
     for i, ticker in enumerate(tickers):
         lo, hi = result[i]
         if regime == "RISK_ON":
-            # No hiding in safe stuff — we want the money working for growth.
+            # Keep money out of safe assets so it's working for growth.
             if ticker == "SHV":
                 lo, hi = 0.0, 0.01
             elif ticker == "TLT":
                 lo, hi = 0.0, 0.01
             elif ticker == "GLD":
                 lo, hi = 0.0, 0.05
-            # The stock ETFs (leveraged ones included) can go all the way up to 70%.
+            # Stock ETFs, leveraged ones included, can go up to 70%.
         elif regime == "CHOPPY":
             if ticker in _LEVERAGED_ETFS:
-                hi = min(hi, 0.03)         # 3x ETFs both decay AND crash in chop — keep them tiny (near RISK_OFF)
+                hi = min(hi, 0.03)         # 3x ETFs decay and crash in chop, so tiny (near RISK_OFF)
             elif ticker == "GLD":
                 lo = max(lo, 0.10)
             elif ticker == "TLT":
@@ -72,7 +65,7 @@ def _apply_regime_bounds(
                 hi = min(hi, 0.30)
         elif regime == "RISK_OFF":
             if ticker in _LEVERAGED_ETFS:
-                hi = min(hi, 0.02)         # leverage in a crash is how you blow up the account — almost zero
+                hi = min(hi, 0.02)         # leverage in a crash blows up accounts, so almost zero
             elif ticker == "SHV":
                 lo = max(lo, 0.30)
             elif ticker == "TLT":
@@ -91,7 +84,7 @@ def _apply_sentiment_bounds(
         if ticker not in sentiment:
             continue
         score = sentiment[ticker].get("score")
-        if score is None:          # sentiment couldn't be determined -> no adjustment
+        if score is None:          # sentiment couldn't be determined, so no adjustment
             continue
         lo, hi = result[i]
         if score > 0.6:
@@ -107,13 +100,8 @@ def _apply_sentiment_bounds(
 def _clip_and_renorm(weights: pd.Series, bounds: dict | list) -> pd.Series:
     """Make the weights obey their min/max limits while still adding up to 100%.
 
-    Pass bounds as a {ticker: (lo, hi)} dict when you can — that way it doesn't
-    matter that HRP has shuffled the assets into a different order.
-
-    The gist of it:
-      1. Bump anything that's under its floor up to the floor (e.g. SHV must be ≥ 30% in RISK_OFF).
-      2. Trim anything over its ceiling back down, and hand the spillover to assets that still have room.
-      3. One last pass to hard-cap any stragglers that slipped through.
+    Pass bounds as a {ticker: (lo, hi)} dict when you can, so it doesn't matter that HRP has
+    shuffled the assets into a different order.
     """
     tickers = weights.index.tolist()
     if isinstance(bounds, dict):
@@ -127,15 +115,14 @@ def _clip_and_renorm(weights: pd.Series, bounds: dict | list) -> pd.Series:
     if total > 0:
         weights = weights / total
 
-    # Step 1: lift anything sitting below its required floor up to that floor.
-    # We pay for those bumps by skimming a little off everyone who has spare weight.
+    # Lift anything below its floor (e.g. SHV must be at least 30% in RISK_OFF). Pay for it by
+    # skimming from assets with spare weight.
     needed = 0.0
     for t in tickers:
         if weights[t] < min_bounds[t]:
             needed += min_bounds[t] - weights[t]
             weights[t] = min_bounds[t]
     if needed > 0:
-        # The "donors" are assets sitting above their floor — they have weight to spare.
         donors = [t for t in tickers if weights[t] > min_bounds[t] + 1e-9]
         donor_excess = sum(weights[t] - min_bounds[t] for t in donors)
         if donor_excess > 0:
@@ -143,9 +130,8 @@ def _clip_and_renorm(weights: pd.Series, bounds: dict | list) -> pd.Series:
             for t in donors:
                 weights[t] -= (weights[t] - min_bounds[t]) * scale
 
-    # Step 2: trim anything over its ceiling and pour the overflow into assets that
-    # still have headroom. We loop because moving weight around can push a new asset
-    # over its own ceiling, so it takes a few passes to settle.
+    # Trim anything over its ceiling and give the overflow to assets with headroom. Loop because
+    # moving weight around can push another asset over its own ceiling.
     locked: set[str] = set()
     for _ in range(50):
         excess = 0.0
@@ -160,7 +146,6 @@ def _clip_and_renorm(weights: pd.Series, bounds: dict | list) -> pd.Series:
         if excess < 1e-9:
             break
 
-        # Only hand the overflow to assets that aren't already maxed out.
         eligible = [t for t in tickers if t not in locked]
         if not eligible:
             break
@@ -175,13 +160,13 @@ def _clip_and_renorm(weights: pd.Series, bounds: dict | list) -> pd.Series:
             for t in eligible:
                 weights[t] += per_asset
 
-    # Step 3: belt-and-suspenders — force-cap anything still poking over its ceiling.
+    # Last pass: hard-cap anything still over its ceiling.
     for t in tickers:
         if weights[t] > max_bounds[t]:
             weights[t] = max_bounds[t]
 
-    # Step 4: if all that capping left us short of 100%, top it back up using
-    # whatever assets still have room (without ever dropping anyone below their floor).
+    # If capping left us short of 100%, top up using assets that still have room, without
+    # dropping anyone below their floor.
     deficit = 1.0 - float(weights.sum())
     if abs(deficit) > 1e-6:
         room = [(t, max_bounds[t] - weights[t]) for t in tickers if max_bounds[t] - weights[t] > 1e-9]
@@ -192,8 +177,6 @@ def _clip_and_renorm(weights: pd.Series, bounds: dict | list) -> pd.Series:
 
     return weights
 
-
-# ── Strategy implementations ───────────────────────────────────────────────────
 
 def _max_sharpe(returns: pd.DataFrame, bounds: list[tuple]) -> np.ndarray:
     mean_ret = returns.mean().values
@@ -225,18 +208,15 @@ def _max_sharpe(returns: pd.DataFrame, bounds: list[tuple]) -> np.ndarray:
 
 
 def _hrp(returns: pd.DataFrame) -> pd.Series:
-    """Hierarchical Risk Parity.
-
-    Plain-English version: it groups assets that move alike into a family tree,
-    then splits the money down that tree so risk ends up shared evenly — instead
-    of betting big on a handful of names that all rise and fall together.
+    """Hierarchical Risk Parity. Groups assets that move alike into a tree, then splits the money
+    down the tree so risk ends up shared evenly.
     """
     corr = returns.corr()
     cov = returns.cov()
     tickers = returns.columns.tolist()
 
     dist = np.sqrt(np.clip((1.0 - corr.values) / 2.0, 0.0, 1.0))
-    dist = (dist + dist.T) / 2          # nudge it perfectly symmetric — rounding can leave it a hair off, and the clustering step is picky
+    dist = (dist + dist.T) / 2          # rounding can leave it slightly off and clustering is picky
     np.fill_diagonal(dist, 0.0)
     link = linkage(squareform(dist), method="ward")
     sorted_tickers = [tickers[i] for i in leaves_list(link)]
@@ -269,15 +249,12 @@ def _hrp(returns: pd.DataFrame) -> pd.Series:
 
 
 def _hrp_momentum(returns: pd.DataFrame) -> pd.Series:
-    """Start from HRP, then add a momentum opinion on top.
-
-    Two extra steps: first kick out anything that hasn't even beaten cash lately
-    (absolute momentum), then tilt the remaining money toward the strongest names
-    and away from the weakest (relative momentum).
+    """HRP plus momentum. Drops anything that hasn't beaten cash lately (absolute momentum), then
+    tilts toward the strongest names and away from the weakest (relative momentum).
     """
     weights = _hrp(returns)
 
-    # Absolute momentum check: how has each asset done over the last ~12 weeks (63 trading days)?
+    # Absolute momentum: each asset's return over the last ~12 weeks (63 trading days).
     period = min(63, len(returns))
     cum_ret = (1 + returns.tail(period)).prod() - 1
     tbill_hurdle = RISK_FREE_RATE * (period / 252)
@@ -287,13 +264,11 @@ def _hrp_momentum(returns: pd.DataFrame) -> pd.Series:
         if ticker == "SHV":
             continue
         if cum_ret.get(ticker, 0.0) < tbill_hurdle:
-            # Couldn't even beat a T-bill — it doesn't earn a spot, so zero it out.
             zeroed_mass += weights[ticker]
             weights[ticker] = 0.0
 
-    # Now rehome the weight we just freed up. Park what we can in SHV (cash), but
-    # not so much that SHV blows past the concentration cap — spread the rest across
-    # the names that are still in the game.
+    # Move the freed weight to SHV (cash), up to the concentration cap, and spread the rest
+    # across the names still in.
     if zeroed_mass > 0:
         live_assets = [t for t in weights.index if t != "SHV" and weights[t] > 0]
         shv_room = MAX_SINGLE_WEIGHT - weights.get("SHV", 0.0)
@@ -306,22 +281,21 @@ def _hrp_momentum(returns: pd.DataFrame) -> pd.Series:
             for t in live_assets:
                 weights[t] += per_asset
         elif remainder > 0 and "SHV" in weights.index:
-            # Everything failed the momentum test, so there's nowhere else to put it —
-            # SHV (cash) soaks up the rest even if that breaks the usual cap.
+            # Everything failed the momentum test, so SHV takes the rest even past the cap.
             weights["SHV"] += remainder
 
-    # Relative momentum tilt: give the top 3 a +60% boost and trim the bottom 3 by 40%.
-    # Leaning this hard is deliberate — it's what lets the leveraged ETFs (TQQQ etc.)
-    # get a real allocation on the days they're the ones leading.
+    # Relative momentum tilt: the top 3 get +60% and the bottom 3 get cut by 40%. Leaning this
+    # hard is on purpose. It lets the leveraged ETFs (TQQQ etc.) get a real allocation on days
+    # they lead.
     live = weights[weights > 0].index.tolist()
     if len(live) >= 6:
         ranked = cum_ret.reindex(live).sort_values(ascending=False)
         top3 = ranked.index[:3].tolist()
         bot3 = ranked.index[-3:].tolist()
         for t in top3:
-            weights[t] *= 1.60                # really lean into the winners
+            weights[t] *= 1.60
         for t in bot3:
-            reduction = weights[t] * 0.40     # and meaningfully shave the laggards
+            reduction = weights[t] * 0.40
             weights[t] -= reduction
             for tt in top3:
                 weights[tt] += reduction / 3
@@ -330,11 +304,9 @@ def _hrp_momentum(returns: pd.DataFrame) -> pd.Series:
     return weights / total if total > 0 else weights
 
 
-# ── Strategy selector ─────────────────────────────────────────────────────────
-
-ADAPTIVE_LOOKBACK_DAYS = 60       # how far back we look to judge "recent" performance
-ADAPTIVE_OVERRIDE_MARGIN = 0.15   # a challenger has to be 15% better before we'll switch off the regime's pick
-ADAPTIVE_OVERRIDE_MARGIN_RISK_ON = 1.00   # in a bull market the bar is so high it basically never switches — HRP_MOMENTUM stays put
+ADAPTIVE_LOOKBACK_DAYS = 60       # how far back we judge "recent" performance
+ADAPTIVE_OVERRIDE_MARGIN = 0.15   # a rival has to be 15% better to replace the regime's pick
+ADAPTIVE_OVERRIDE_MARGIN_RISK_ON = 1.00   # higher bar in RISK_ON: a rival has to win by a full |baseline|
 
 
 def _score_strategy_recent(
@@ -343,23 +315,19 @@ def _score_strategy_recent(
     regime: str,
     lookback: int = ADAPTIVE_LOOKBACK_DAYS,
 ) -> float:
-    """Score a strategy by replaying it on recent history — fairly.
+    """Sharpe of a strategy over the last `lookback` days, with no hindsight.
 
-    The trick is to avoid cheating with hindsight: we work out the weights using
-    only the data from BEFORE the test window, then see how those weights would
-    have actually done over the most recent `lookback` days. The result is a Sharpe
-    ratio — basically, how good were the returns relative to how bumpy the ride was.
+    Weights are built only from data before the test window, then scored on that window.
     """
     if len(returns) < lookback + 60:
         return 0.0
     train = returns.iloc[:-lookback]
     test = returns.tail(lookback)
     try:
-        # Build the weights on the older "training" slice. No sentiment here — we
-        # didn't record news scores back in history, so it wouldn't be a fair test.
+        # No sentiment here. We didn't record news scores back in history, so it wouldn't be a
+        # fair test.
         result = optimize(strategy=strategy_name, returns=train, regime=regime)
         weights = result["weights"]
-        # Now see how those weights would've performed over the held-out recent days.
         cols = [c for c in test.columns if c in weights]
         if not cols:
             return 0.0
@@ -375,26 +343,21 @@ def _score_strategy_recent(
 
 
 def select_strategy(regime: str, returns: pd.DataFrame | None = None) -> str:
-    """Pick which strategy to actually run today.
+    """Pick which strategy to run today.
 
-    How it decides:
-      1. Start with the regime's default pick (from STRATEGY_BY_REGIME) as the baseline.
-      2. If we have data and auto-select is on, replay all three strategies on the
-         last 60 days and grade them.
-      3. Only ditch the baseline if a rival clearly wins — 15% better — so we're
-         reacting to a real edge, not random short-term noise.
+    Starts from the regime's default in STRATEGY_BY_REGIME, then replays all three strategies on
+    the last 60 days. It only drops the default if a rival clearly wins, 15% better, so we react
+    to a real edge and ignore short-term noise.
     """
     if not AUTO_SELECT_STRATEGY:
         return ACTIVE_STRATEGY
 
     baseline = STRATEGY_BY_REGIME.get(regime, ACTIVE_STRATEGY)
 
-    # Not enough history to grade anything fairly, so just trust the regime's pick.
     if returns is None or len(returns) < ADAPTIVE_LOOKBACK_DAYS + 60:
         logger.info("Strategy: %s (regime=%s, no adaptive override — insufficient history)", baseline, regime)
         return baseline
 
-    # Score every strategy on actual recent performance
     scores: dict[str, float] = {}
     for strat in ("MAX_SHARPE", "HRP", "HRP_MOMENTUM"):
         scores[strat] = _score_strategy_recent(strat, returns, regime)
@@ -406,15 +369,13 @@ def select_strategy(regime: str, returns: pd.DataFrame | None = None) -> str:
     log_scores = ", ".join(f"{k}={v:.2f}" for k, v in scores.items())
     logger.info("Recent Sharpe by strategy: %s", log_scores)
 
-    # In a bull market we make the bar to switch nearly unbeatable, so we stay in
-    # HRP_MOMENTUM and don't get talked out of it by a hot streak somewhere else.
+    # RISK_ON uses the bigger margin, so it takes a bigger gap to replace HRP_MOMENTUM there.
     margin = ADAPTIVE_OVERRIDE_MARGIN_RISK_ON if regime == "RISK_ON" else ADAPTIVE_OVERRIDE_MARGIN
 
-    # Switch away from the baseline only when the winner clears that bar. The bar
-    # is a gap measured against |baseline|: `baseline * (1 + margin)` flips sign
-    # when the baseline Sharpe is negative and LOWERS the bar exactly when every
-    # strategy is losing, so a rival at -0.9 "beat" a baseline at -1.0 by 15%.
-    # The 0.5 floor stops a near-zero baseline from making any rival a winner.
+    # The bar is a gap measured against |baseline|. `baseline * (1 + margin)` flips sign when the
+    # baseline Sharpe is negative and lowers the bar exactly when every strategy is losing, so a
+    # rival at -0.9 "beat" a baseline at -1.0 by 15%. The 0.5 floor stops a near-zero baseline
+    # from making any rival a winner.
     required_gap = margin * max(abs(baseline_score), 0.5)
     if best_strat != baseline and best_score - baseline_score > required_gap:
         logger.info(
@@ -428,8 +389,6 @@ def select_strategy(regime: str, returns: pd.DataFrame | None = None) -> str:
     logger.info("Strategy: %s (regime=%s, baseline kept — no clear winner)", baseline, regime)
     return baseline
 
-
-# ── Public API ─────────────────────────────────────────────────────────────────
 
 def _portfolio_stats(weights: np.ndarray, mean_ret: np.ndarray, cov252: np.ndarray) -> dict:
     port_return = float(np.dot(weights, mean_ret) * 252)
@@ -448,11 +407,7 @@ def optimize(
     sentiment_modifiers: dict | None = None,
     regime: str = "RISK_ON",
 ) -> dict:
-    """The main entry point — give it a strategy, get back the target weights.
-
-    Along with the weights it also reports the expected annual return, how volatile
-    that mix is, and the resulting Sharpe ratio.
-    """
+    """Main entry point. Returns target weights plus expected annual return, vol and Sharpe."""
     if strategy is None:
         strategy = ACTIVE_STRATEGY
     if sentiment_modifiers is None:
@@ -469,11 +424,11 @@ def optimize(
     bounds = _apply_regime_bounds(tickers, bounds, regime)
     bounds = _apply_sentiment_bounds(tickers, bounds, sentiment_modifiers)
 
-    # Key the bounds by ticker name so it doesn't matter if HRP reshuffles the order.
+    # Key the bounds by ticker so it doesn't matter if HRP reshuffles the order.
     bounds_by_ticker = {tickers[i]: bounds[i] for i in range(n)}
 
     if strategy == "MAX_SHARPE":
-        # This one keeps the original ticker order, so it's fine to use the plain list.
+        # Keeps the original ticker order, so the plain list is fine.
         raw = _max_sharpe(returns, bounds)
         weights = pd.Series(raw, index=tickers)
 
@@ -488,10 +443,10 @@ def optimize(
     else:
         raise ValueError(f"Unknown strategy: {strategy!r}")
 
-    # HRP returns weights in its dendrogram (leaf) order, not the column order.
-    # mean_ret/cov252 below are in COLUMN order, so without this the stats paired
-    # each asset's weight with another asset's mean and variance: the 2026-10-13
-    # run logged Sharpe 0.20 / vol 13% for a book that was really -0.12 / 53%.
+    # HRP returns weights in its dendrogram (leaf) order, and mean_ret and cov252 below are in
+    # column order. Without this the stats paired each asset's weight with another asset's mean
+    # and variance. The 2026-10-13 run logged Sharpe 0.20 and vol 13% for a book that was really
+    # -0.12 and 53%.
     weights = weights.reindex(tickers).fillna(0.0)
     mean_ret = returns.mean().values
     cov252 = returns.cov().values * 252

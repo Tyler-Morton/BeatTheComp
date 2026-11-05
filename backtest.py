@@ -1,10 +1,6 @@
-"""Full historical backtest — all 3 strategies vs SPY from 2019-01-01.
+"""Backtests all 3 strategies against SPY from 2019-01-01.
 
-Outputs:
-  - Prints full period summary table
-  - Prints quarterly breakdown table
-  - Saves quarterly_backtest.csv
-  - Saves backtest_results.png (3-panel chart)
+Prints full-period and quarterly tables, then saves quarterly_backtest.csv and backtest_results.png.
 """
 
 import logging
@@ -30,10 +26,8 @@ STRATEGIES = ["MAX_SHARPE", "HRP", "HRP_MOMENTUM"]
 BACKTEST_START = datetime(2019, 1, 1)
 
 
-# ── Data download ──────────────────────────────────────────────────────────────
-
 def _download_history(tickers: list[str]) -> pd.DataFrame:
-    logger.info("Downloading price history for backtest (%d tickers)…", len(tickers))
+    logger.info("Downloading price history for backtest (%d tickers)...", len(tickers))
     frames: list[pd.Series] = []
     for ticker in tickers:
         try:
@@ -53,15 +47,13 @@ def _download_history(tickers: list[str]) -> pd.DataFrame:
             logger.warning("Download failed for %s: %s", ticker, exc)
     if not frames:
         raise RuntimeError("No data downloaded for backtest.")
-    # ffill only. The old .bfill() painted each ETF's first price back over the
-    # years before it existed (BITO 2021, AVUV 2019): flat prices, zero returns,
-    # zero variance — which an inverse-variance optimizer reads as the safest
-    # asset in the universe and the backtest then "holds" as free cash.
+    # ffill only. bfill painted each ETF's first price back over the years before it
+    # existed (BITO 2021, AVUV 2019). Those flat prices have zero variance, which an
+    # inverse-variance optimizer reads as the safest asset, so the backtest held them
+    # like free cash.
     prices = pd.concat(frames, axis=1).ffill()
     return prices
 
-
-# ── Regime detection for a price slice ────────────────────────────────────────
 
 def _detect_regime_from_prices(prices_slice: pd.DataFrame) -> str:
     spy = prices_slice.get("SPY", pd.Series(dtype=float))
@@ -74,28 +66,24 @@ def _detect_regime_from_prices(prices_slice: pd.DataFrame) -> str:
     return _majority_vote(sigs)
 
 
-# ── Per-strategy weight computation (no live API calls) ───────────────────────
-
 def _compute_weights(strategy: str, returns: pd.DataFrame, regime: str) -> dict[str, float]:
-    """Thin wrapper around optimizer — no sentiment in backtest."""
+    """Calls the optimizer with no sentiment, since the backtest doesn't have any."""
     from optimizer import optimize
     try:
         result = optimize(strategy=strategy, returns=returns, sentiment_modifiers={}, regime=regime)
         return result["weights"]
     except Exception as exc:
-        logger.warning("optimize failed (%s, %s): %s — equal weight fallback", strategy, regime, exc)
+        logger.warning("optimize failed (%s, %s): %s, using equal weights", strategy, regime, exc)
         n = len(returns.columns)
         return {t: 1.0 / n for t in returns.columns}
 
 
-# ── Equity curve simulation ────────────────────────────────────────────────────
-
 def _simulate(prices: pd.DataFrame, strategy: str) -> pd.Series:
-    """Monthly rebalance simulation returning daily equity index (start=1.0)."""
+    """Rebalances monthly and returns a daily equity index that starts at 1.0."""
     asset_cols = [c for c in ASSETS if c in prices.columns]
     returns = prices[asset_cols + ["SPY"]].pct_change()
 
-    # Month-end rebalance dates
+    # BME is the last business day of each month.
     rebal_dates = pd.date_range(
         start=prices.index[0], end=prices.index[-1], freq="BME"
     )
@@ -108,19 +96,17 @@ def _simulate(prices: pd.DataFrame, strategy: str) -> pd.Series:
     for i in range(1, len(prices)):
         date = prices.index[i]
 
-        # Drawdown circuit breaker, as risk.check_drawdown does live: judged on
-        # the equity we KNOW (yesterday's close), and all it does is block the
-        # rebalance — positions keep riding. It used to discard the losing day's
-        # return instead, which no live bot can do: equity could never close
-        # more than 30% under its high, so max drawdown was capped by fiat.
+        # Drawdown breaker, judged on yesterday's close since that's the equity we know.
+        # It only blocks the rebalance and positions keep riding. It used to throw out the
+        # losing day's return, which no live bot can do, and that capped max drawdown at 30%.
+        # This is the old live rule. risk.py now goes de-risk only, which isn't modeled here.
         breaker_on = (equity.iloc[i - 1] / portfolio_ath - 1) < -DRAWDOWN_CIRCUIT_BREAKER
 
-        # Rebalance on month-end or first bar
         if (date in rebal_dates and not breaker_on) or i == 1:
             hist_start = max(0, i - 252)
-            # An asset joins once it has a full lookback window (live sees no gaps:
-            # data.get_returns drops incomplete rows).
-            # (Row 0 of pct_change is all-NaN, hence max(1, ...).)
+            # An asset joins once it has a full lookback window. Live sees no gaps because
+            # data.get_returns drops incomplete rows. Row 0 of pct_change is all NaN, hence
+            # max(1, ...).
             hist = returns.iloc[max(1, hist_start):i][asset_cols].dropna(axis=1, how="any")
             if not hist.empty and len(hist) >= 20:
                 price_slice = prices.iloc[hist_start:i]
@@ -131,7 +117,6 @@ def _simulate(prices: pd.DataFrame, strategy: str) -> pd.Series:
             else:
                 weights = {t: 1.0 / len(asset_cols) for t in asset_cols}
 
-        # Daily portfolio return
         day_ret = sum(
             weights.get(t, 0.0) * returns.loc[date, t]
             for t in weights
@@ -144,8 +129,6 @@ def _simulate(prices: pd.DataFrame, strategy: str) -> pd.Series:
 
     return equity.dropna()
 
-
-# ── Performance metrics ────────────────────────────────────────────────────────
 
 def _cagr(equity: pd.Series) -> float:
     years = (equity.index[-1] - equity.index[0]).days / 365.25
@@ -182,8 +165,6 @@ def _full_period_stats(name: str, equity: pd.Series) -> dict:
     }
 
 
-# ── Quarterly breakdown ────────────────────────────────────────────────────────
-
 def _quarterly_returns(equity: pd.Series) -> pd.Series:
     return equity.resample("QE").last().pct_change().dropna()
 
@@ -194,8 +175,6 @@ def _build_quarterly_df(curves: dict[str, pd.Series]) -> pd.DataFrame:
     df.index = df.index.to_period("Q").astype(str)
     return df
 
-
-# ── Market condition breakdown ────────────────────────────────────────────────
 
 def _compute_regime_series(prices: pd.DataFrame) -> pd.Series:
     """Approximate monthly regime label for the full history."""
@@ -208,8 +187,6 @@ def _compute_regime_series(prices: pd.DataFrame) -> pd.Series:
     return pd.Series(dict(regimes))
 
 
-# ── Charts ─────────────────────────────────────────────────────────────────────
-
 _COLORS = {
     "MAX_SHARPE": "#4C72B0",
     "HRP": "#55A868",
@@ -221,7 +198,7 @@ _COLORS = {
 def _plot_equity_curves(ax: plt.Axes, curves: dict[str, pd.Series]) -> None:
     for name, eq in curves.items():
         ax.plot(eq.index, eq.values * 100, label=name, color=_COLORS.get(name), linewidth=1.6)
-    ax.set_title("Portfolio Equity Curves vs SPY (2019–Today)", fontsize=12, fontweight="bold")
+    ax.set_title("Portfolio Equity Curves vs SPY (2019-Today)", fontsize=12, fontweight="bold")
     ax.set_ylabel("Growth of $100")
     ax.yaxis.set_major_formatter(mticker.FuncFormatter(lambda x, _: f"${x:,.0f}"))
     ax.legend(fontsize=9)
@@ -239,7 +216,7 @@ def _plot_quarterly_bars(ax: plt.Axes, qdf: pd.DataFrame) -> None:
         vals = qdf[col].values * 100
         bars = ax.bar(x + i * w, vals, width=w, label=col, color=_COLORS.get(col), alpha=0.85)
 
-    ax.set_title("Quarterly Returns — All Strategies vs SPY", fontsize=12, fontweight="bold")
+    ax.set_title("Quarterly Returns: All Strategies vs SPY", fontsize=12, fontweight="bold")
     ax.set_xticks(x + w * (n_s - 1) / 2)
     ax.set_xticklabels(quarters, rotation=75, fontsize=6)
     ax.set_ylabel("Return (%)")
@@ -249,15 +226,14 @@ def _plot_quarterly_bars(ax: plt.Axes, qdf: pd.DataFrame) -> None:
 
 
 def _plot_condition_heatmap(ax: plt.Axes, qdf: pd.DataFrame, regime_series: pd.Series) -> None:
-    """Heatmap of avg return per (strategy, regime)."""
+    """Heatmap of average return for each strategy and regime."""
     strategy_cols = [c for c in qdf.columns if c != "SPY"]
     records: list[dict] = []
     for q_str in qdf.index:
-        # Map quarter string to approximate date
+        # Use the regime from the month-end closest to the quarter's end.
         try:
             q_period = pd.Period(q_str, "Q")
             q_end = q_period.end_time
-            # Find nearest regime
             diffs = abs(regime_series.index - q_end)
             regime = regime_series.iloc[diffs.argmin()] if not regime_series.empty else CHOPPY
         except Exception:
@@ -282,22 +258,17 @@ def _plot_condition_heatmap(ax: plt.Axes, qdf: pd.DataFrame, regime_series: pd.S
     ax.set_title("Avg Return by Market Regime", fontsize=12, fontweight="bold")
 
 
-# ── Main entry ─────────────────────────────────────────────────────────────────
-
 def run_backtest() -> None:
     all_tickers = list(dict.fromkeys(ASSETS + ["SPY", "TLT"]))
     prices = _download_history(all_tickers)
 
     curves: dict[str, pd.Series] = {}
     for strategy in STRATEGIES:
-        logger.info("Simulating %s…", strategy)
+        logger.info("Simulating %s...", strategy)
         curves[strategy] = _simulate(prices, strategy)
     curves["SPY"] = (prices["SPY"] / prices["SPY"].iloc[0]).dropna() if "SPY" in prices.columns else pd.Series()
 
-    # ── Full period summary ────────────────────────────────────────────────────
-    print("\n" + "═" * 80)
-    print("FULL PERIOD SUMMARY (2019-01-01 → today)")
-    print("═" * 80)
+    print("\nFULL PERIOD SUMMARY (2019-01-01 to today)")
     header = f"{'Strategy':<18} {'CAGR':>8} {'Sharpe':>8} {'Max DD':>10} {'Total Ret':>12} {'Best Yr':>9} {'Worst Yr':>9}"
     print(header)
     print("-" * 80)
@@ -311,13 +282,10 @@ def run_backtest() -> None:
             f"{s['Best Year']:>9} {s['Worst Year']:>9}"
         )
 
-    # ── Quarterly breakdown ────────────────────────────────────────────────────
     qdf = _build_quarterly_df(curves)
     spy_q = qdf.get("SPY", pd.Series(0.0, index=qdf.index))
 
-    print("\n" + "═" * 80)
-    print("QUARTERLY BREAKDOWN")
-    print("═" * 80)
+    print("\nQUARTERLY BREAKDOWN (* = beat SPY that quarter)")
     cols = qdf.columns.tolist()
     header_q = f"{'Quarter':<8} " + " ".join(f"{c:>14}" for c in cols) + f"  {'Winner':<14}"
     print(header_q)
@@ -326,13 +294,12 @@ def run_backtest() -> None:
         parts = []
         for c in cols:
             val = row.get(c, np.nan)
-            tag = "✓" if (c != "SPY" and not np.isnan(val) and val > spy_q.get(q, 0.0)) else " "
+            tag = "*" if (c != "SPY" and not np.isnan(val) and val > spy_q.get(q, 0.0)) else " "
             parts.append(f"{val:>12.1%}{tag}")
         non_spy = {c: row.get(c, -np.inf) for c in cols if c != "SPY"}
-        winner = max(non_spy, key=non_spy.get) if non_spy else "—"
+        winner = max(non_spy, key=non_spy.get) if non_spy else "-"
         print(f"{q:<8} " + " ".join(parts) + f"  {winner:<14}")
 
-    # Summary row
     if "SPY" in qdf.columns:
         for strat in [c for c in cols if c != "SPY"]:
             beats = (qdf[strat] > qdf["SPY"]).sum()
@@ -340,10 +307,7 @@ def run_backtest() -> None:
             pct = beats / total * 100 if total > 0 else 0
             print(f"  {strat}: beat SPY in {beats}/{total} quarters ({pct:.0f}%)")
 
-    # ── Per-strategy quarterly stats ──────────────────────────────────────────
-    print("\n" + "═" * 80)
-    print("QUARTERLY STATS PER STRATEGY")
-    print("═" * 80)
+    print("\nQUARTERLY STATS PER STRATEGY")
     for strat in [c for c in cols if c != "SPY"]:
         s_q = qdf[strat].dropna()
         if s_q.empty:
@@ -357,12 +321,9 @@ def run_backtest() -> None:
         print(f"  Avg return:        {s_q.mean():.1%}")
         print(f"  Quarterly vol:     {s_q.std():.1%}")
 
-    # ── Market condition breakdown ─────────────────────────────────────────────
     regime_series = _compute_regime_series(prices)
 
-    print("\n" + "═" * 80)
-    print("MARKET CONDITION PERFORMANCE")
-    print("═" * 80)
+    print("\nMARKET CONDITION PERFORMANCE")
     strategy_cols = [c for c in cols if c != "SPY"]
     records: list[dict] = []
     for q_str in qdf.index:
@@ -398,11 +359,9 @@ def run_backtest() -> None:
                     f"beat SPY {s_sub['BeatSPY'].mean():.0%}"
                 )
 
-    # ── Save CSV ───────────────────────────────────────────────────────────────
     qdf.to_csv(QUARTERLY_BACKTEST)
     logger.info("Saved %s", QUARTERLY_BACKTEST)
 
-    # ── Save charts ────────────────────────────────────────────────────────────
     fig, axes = plt.subplots(3, 1, figsize=(16, 22))
     fig.patch.set_facecolor("#f8f9fa")
     for ax in axes:
@@ -416,8 +375,8 @@ def run_backtest() -> None:
     plt.savefig(BACKTEST_RESULTS, dpi=150, bbox_inches="tight")
     plt.close()
     logger.info("Saved %s", BACKTEST_RESULTS)
-    print(f"\n  Charts saved → {BACKTEST_RESULTS}")
-    print(f"  CSV saved    → {QUARTERLY_BACKTEST}\n")
+    print(f"\n  Charts saved to {BACKTEST_RESULTS}")
+    print(f"  CSV saved to {QUARTERLY_BACKTEST}\n")
 
 
 if __name__ == "__main__":
