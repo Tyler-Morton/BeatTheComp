@@ -97,3 +97,4 @@ date,strategy,regime,portfolio_value,sharpe,expected_return,annual_vol,orders_pl
 2026-11-06,HRP,CHOPPY,831.99,-0.5178,0.02,0.0483,4,"{""BITO"": 0.2659, ""GLD"": 0.0158, ""SHV"": 0.3865, ""TLT"": 0.0171}",ml_shadow p=0.51 would_mult=0.44; unfilled=26.7%
 2026-11-09,HRP,CHOPPY,831.43,-0.5207,0.0199,0.0483,2,"{""GLD"": 0.1499, ""SHV"": 0.7007, ""TLT"": 0.1468}",ml_shadow p=0.54 would_mult=0.40
 2026-11-10,HRP,CHOPPY,827.65,-0.4635,0.0226,0.0484,0,"{""GLD"": 0.148, ""SHV"": 0.7039, ""TLT"": 0.1454}",no_rebalance; ml_shadow p=0.85 would_mult=0.40
+2026-11-11,HRP,CHOPPY,826.15,-0.5785,0.0168,0.0488,0,"{""GLD"": 0.1473, ""SHV"": 0.7051, ""TLT"": 0.1449}",no_rebalance; ml_shadow p=0.74 would_mult=0.40
