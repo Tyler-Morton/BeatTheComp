@@ -99,3 +99,4 @@ date,strategy,regime,portfolio_value,sharpe,expected_return,annual_vol,orders_pl
 2026-11-10,HRP,CHOPPY,827.65,-0.4635,0.0226,0.0484,0,"{""GLD"": 0.148, ""SHV"": 0.7039, ""TLT"": 0.1454}",no_rebalance; ml_shadow p=0.85 would_mult=0.40
 2026-11-11,HRP,CHOPPY,826.15,-0.5785,0.0168,0.0488,0,"{""GLD"": 0.1473, ""SHV"": 0.7051, ""TLT"": 0.1449}",no_rebalance; ml_shadow p=0.74 would_mult=0.40
 2026-11-12,HRP,CHOPPY,822.4,-0.5961,0.0159,0.0488,0,"{""GLD"": 0.1432, ""SHV"": 0.7084, ""TLT"": 0.1457}",no_rebalance; ml_shadow p=0.59 would_mult=0.40
+2026-11-13,MAX_SHARPE,CHOPPY,819.96,0.775,0.158,0.1458,5,"{""AVUV"": 0.0874, ""GLD"": 0.1001, ""SHV"": 0.7107, ""TLT"": 0.1, ""VEA"": 0.0017}",ml_shadow p=0.89 would_mult=0.40; unfilled=54.0%
