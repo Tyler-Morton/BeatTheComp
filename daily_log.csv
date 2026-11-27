@@ -108,3 +108,4 @@ date,strategy,regime,portfolio_value,sharpe,expected_return,annual_vol,orders_pl
 2026-11-23,HRP,RISK_OFF,796.73,-1.0016,0.0152,0.0297,5,"{""AVUV"": 0.2757, ""SHV"": 0.6296, ""TLT"": 0.0922}","BREAKER de-risk only: -30.6% from HWM $1,148 (trip $803), session 2/63; ml_shadow p=0.15 would_mult=0.91"
 2026-11-24,HRP,RISK_OFF,796.01,-0.9625,0.0164,0.0298,2,"{""SHV"": 0.9047, ""TLT"": 0.0928}","BREAKER de-risk only: -30.6% from HWM $1,148 (trip $803), session 3/63; ml_shadow p=0.32 would_mult=0.69; cash_swept"
 2026-11-25,HRP,RISK_OFF,796.78,-1.0342,0.0142,0.0297,0,"{""SHV"": 0.904, ""TLT"": 0.0935}","no_rebalance; BREAKER de-risk only: -30.6% from HWM $1,148 (trip $803), session 4/63; ml_shadow p=0.26 would_mult=0.77"
+2026-11-27,HRP,RISK_OFF,796.55,-0.8665,0.0191,0.0299,0,"{""SHV"": 0.9046, ""TLT"": 0.0929}","no_rebalance; BREAKER de-risk only: -30.6% from HWM $1,148 (trip $803), session 5/63; ml_shadow p=0.10 would_mult=0.96"
